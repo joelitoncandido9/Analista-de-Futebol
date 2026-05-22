@@ -1,0 +1,1 @@
+{"mae_test": 2.815757989883423, "rmse_test": 3.4800431904359757, "mae_train": 1.3492621183395386, "rmse_train": 2.2026175056487194, "n_train": 1973, "n_test": 380, "mean_actual": 9.673684210526316, "mean_pred": 10.054524421691895, "league": "Primeira Liga"}

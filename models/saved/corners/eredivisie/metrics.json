@@ -1,0 +1,1 @@
+{"mae_test": 2.7095205783843994, "rmse_test": 3.3414222957715474, "mae_train": 1.3734996318817139, "rmse_train": 2.2716592342547126, "n_train": 1906, "n_test": 380, "mean_actual": 10.097368421052632, "mean_pred": 10.055675506591797, "league": "Eredivisie"}

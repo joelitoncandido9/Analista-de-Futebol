@@ -1,0 +1,1 @@
+{"mae_test": 2.519683599472046, "rmse_test": 3.1023049799067937, "mae_train": 2.0404560565948486, "rmse_train": 2.9471789044564374, "n_train": 8180, "n_test": 380, "mean_actual": 9.1, "mean_pred": 9.282379150390625, "league": "Premier League"}
