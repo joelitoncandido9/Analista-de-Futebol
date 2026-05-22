@@ -199,19 +199,37 @@ def evaluate_predictions():
     cur.execute("""
         UPDATE predictions
         SET actual_value = (
-            CASE WHEN market = 'total_corners' THEN home_corners + away_corners
-                 WHEN market = 'total_shots' THEN home_shots + away_shots
+            CASE
+                WHEN market = 'total_corners' THEN home_corners + away_corners
+                WHEN market = 'total_shots' THEN home_shots + away_shots
+                WHEN market = 'total_shots_on_target' THEN home_shots_on_target + away_shots_on_target
+                WHEN market = 'total_fouls' THEN home_fouls + away_fouls
+                WHEN market = 'total_yellow' THEN home_yellow + away_yellow
+                WHEN market = 'home_corners' THEN home_corners
+                WHEN market = 'away_corners' THEN away_corners
             END
         ),
         was_correct = (
             CASE
                 WHEN direction = 'over' AND
-                     (CASE WHEN market = 'total_corners' THEN home_corners + away_corners
-                           WHEN market = 'total_shots' THEN home_shots + away_shots
+                     (CASE
+                          WHEN market = 'total_corners' THEN home_corners + away_corners
+                          WHEN market = 'total_shots' THEN home_shots + away_shots
+                          WHEN market = 'total_shots_on_target' THEN home_shots_on_target + away_shots_on_target
+                          WHEN market = 'total_fouls' THEN home_fouls + away_fouls
+                          WHEN market = 'total_yellow' THEN home_yellow + away_yellow
+                          WHEN market = 'home_corners' THEN home_corners
+                          WHEN market = 'away_corners' THEN away_corners
                      END) > line THEN 1
                 WHEN direction = 'under' AND
-                     (CASE WHEN market = 'total_corners' THEN home_corners + away_corners
-                           WHEN market = 'total_shots' THEN home_shots + away_shots
+                     (CASE
+                          WHEN market = 'total_corners' THEN home_corners + away_corners
+                          WHEN market = 'total_shots' THEN home_shots + away_shots
+                          WHEN market = 'total_shots_on_target' THEN home_shots_on_target + away_shots_on_target
+                          WHEN market = 'total_fouls' THEN home_fouls + away_fouls
+                          WHEN market = 'total_yellow' THEN home_yellow + away_yellow
+                          WHEN market = 'home_corners' THEN home_corners
+                          WHEN market = 'away_corners' THEN away_corners
                      END) < line THEN 1
                 WHEN actual_value IS NOT NULL THEN 0
             END

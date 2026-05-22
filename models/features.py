@@ -75,6 +75,9 @@ def load_matches(league: str | None = None,
     df["total_corners"] = df["home_corners"] + df["away_corners"]
     df["total_shots"] = df["home_shots"] + df["away_shots"]
     df["total_goals"] = df["home_goals"] + df["away_goals"]
+    df["total_shots_on_target"] = df["home_shots_on_target"] + df["away_shots_on_target"]
+    df["total_fouls"] = df["home_fouls"] + df["away_fouls"]
+    df["total_yellow"] = df["home_yellow"] + df["away_yellow"]
     return df
 
 
@@ -115,6 +118,18 @@ def build_team_features(team: str, match_date: pd.Timestamp,
                                   team_df["home_xg"].fillna(0), team_df["away_xg"].fillna(0))
     team_df["xg_against"] = np.where(team_df["is_home"],
                                       team_df["away_xg"].fillna(0), team_df["home_xg"].fillna(0))
+    team_df["shots_on_target_for"] = np.where(team_df["is_home"],
+                                               team_df["home_shots_on_target"], team_df["away_shots_on_target"])
+    team_df["shots_on_target_against"] = np.where(team_df["is_home"],
+                                                   team_df["away_shots_on_target"], team_df["home_shots_on_target"])
+    team_df["fouls_for"] = np.where(team_df["is_home"],
+                                     team_df["home_fouls"], team_df["away_fouls"])
+    team_df["fouls_against"] = np.where(team_df["is_home"],
+                                         team_df["away_fouls"], team_df["home_fouls"])
+    team_df["yellow_for"] = np.where(team_df["is_home"],
+                                      team_df["home_yellow"], team_df["away_yellow"])
+    team_df["yellow_against"] = np.where(team_df["is_home"],
+                                          team_df["away_yellow"], team_df["home_yellow"])
     team_df["points"] = np.where(
         team_df["goals_for"] > team_df["goals_against"], 3,
         np.where(team_df["goals_for"] == team_df["goals_against"], 1, 0),
@@ -131,6 +146,12 @@ def build_team_features(team: str, match_date: pd.Timestamp,
         features[f"goals_against_avg_{w}"] = _rolling_avg(team_df, "goals_against", w).iloc[-1] if len(team_df) >= 1 else np.nan
         features[f"xg_for_avg_{w}"] = _rolling_avg(team_df, "xg_for", w).iloc[-1] if len(team_df) >= 1 else np.nan
         features[f"xg_against_avg_{w}"] = _rolling_avg(team_df, "xg_against", w).iloc[-1] if len(team_df) >= 1 else np.nan
+        features[f"shots_on_target_for_avg_{w}"] = _rolling_avg(team_df, "shots_on_target_for", w).iloc[-1] if len(team_df) >= 1 else np.nan
+        features[f"shots_on_target_against_avg_{w}"] = _rolling_avg(team_df, "shots_on_target_against", w).iloc[-1] if len(team_df) >= 1 else np.nan
+        features[f"fouls_for_avg_{w}"] = _rolling_avg(team_df, "fouls_for", w).iloc[-1] if len(team_df) >= 1 else np.nan
+        features[f"fouls_against_avg_{w}"] = _rolling_avg(team_df, "fouls_against", w).iloc[-1] if len(team_df) >= 1 else np.nan
+        features[f"yellow_for_avg_{w}"] = _rolling_avg(team_df, "yellow_for", w).iloc[-1] if len(team_df) >= 1 else np.nan
+        features[f"yellow_against_avg_{w}"] = _rolling_avg(team_df, "yellow_against", w).iloc[-1] if len(team_df) >= 1 else np.nan
         features[f"points_avg_{w}"] = _rolling_avg(team_df, "points", w).iloc[-1] if len(team_df) >= 1 else np.nan
 
     # Total de jogos como historico (pra confianca)
@@ -147,6 +168,9 @@ def _default_team_features(team: str, windows: list[int]) -> dict:
                       "shots_for_avg", "shots_against_avg",
                       "goals_for_avg", "goals_against_avg",
                       "xg_for_avg", "xg_against_avg",
+                      "shots_on_target_for_avg", "shots_on_target_against_avg",
+                      "fouls_for_avg", "fouls_against_avg",
+                      "yellow_for_avg", "yellow_against_avg",
                       "points_avg"]:
             features[f"{stat}_{w}"] = np.nan
     features["team_total_games"] = 0
@@ -189,6 +213,24 @@ def build_match_features(row: pd.Series, df: pd.DataFrame) -> dict:
         features[f"home_xg_for_avg_{w}"] = home_feats.get(f"xg_for_avg_{w}")
         features[f"away_xg_for_avg_{w}"] = away_feats.get(f"xg_for_avg_{w}")
 
+        # Chutes no gol
+        features[f"home_shots_on_target_for_avg_{w}"] = home_feats.get(f"shots_on_target_for_avg_{w}")
+        features[f"away_shots_on_target_for_avg_{w}"] = away_feats.get(f"shots_on_target_for_avg_{w}")
+        features[f"home_shots_on_target_against_avg_{w}"] = home_feats.get(f"shots_on_target_against_avg_{w}")
+        features[f"away_shots_on_target_against_avg_{w}"] = away_feats.get(f"shots_on_target_against_avg_{w}")
+
+        # Faltas
+        features[f"home_fouls_for_avg_{w}"] = home_feats.get(f"fouls_for_avg_{w}")
+        features[f"away_fouls_for_avg_{w}"] = away_feats.get(f"fouls_for_avg_{w}")
+        features[f"home_fouls_against_avg_{w}"] = home_feats.get(f"fouls_against_avg_{w}")
+        features[f"away_fouls_against_avg_{w}"] = away_feats.get(f"fouls_against_avg_{w}")
+
+        # Cartoes amarelos
+        features[f"home_yellow_for_avg_{w}"] = home_feats.get(f"yellow_for_avg_{w}")
+        features[f"away_yellow_for_avg_{w}"] = away_feats.get(f"yellow_for_avg_{w}")
+        features[f"home_yellow_against_avg_{w}"] = home_feats.get(f"yellow_against_avg_{w}")
+        features[f"away_yellow_against_avg_{w}"] = away_feats.get(f"yellow_against_avg_{w}")
+
         # Pontos (forma)
         features[f"home_points_avg_{w}"] = home_feats.get(f"points_avg_{w}")
         features[f"away_points_avg_{w}"] = away_feats.get(f"points_avg_{w}")
@@ -198,7 +240,10 @@ def build_match_features(row: pd.Series, df: pd.DataFrame) -> dict:
         for stat in ["corners_for_avg", "corners_against_avg",
                       "shots_for_avg", "shots_against_avg",
                       "goals_for_avg", "goals_against_avg",
-                      "points_avg"]:
+                      "points_avg",
+                      "shots_on_target_for_avg", "shots_on_target_against_avg",
+                      "fouls_for_avg", "fouls_against_avg",
+                      "yellow_for_avg", "yellow_against_avg"]:
             h = home_feats.get(f"{stat}_{w}")
             a = away_feats.get(f"{stat}_{w}")
             if h is not None and a is not None and not (np.isnan(h) if isinstance(h, float) else False) and not (np.isnan(a) if isinstance(a, float) else False):
@@ -272,6 +317,9 @@ def league_averages(df: pd.DataFrame) -> dict:
             "avg_total_shots": ld["total_shots"].mean(),
             "avg_home_shots": ld["home_shots"].mean(),
             "avg_away_shots": ld["away_shots"].mean(),
+            "avg_total_shots_on_target": ld["total_shots_on_target"].mean(),
+            "avg_total_fouls": ld["total_fouls"].mean(),
+            "avg_total_yellow": ld["total_yellow"].mean(),
             "avg_home_goals": ld["home_goals"].mean(),
             "avg_away_goals": ld["away_goals"].mean(),
         }

@@ -60,7 +60,39 @@ LEAGUES: list[League] = [
         api_football_id=71,
         football_data_code="B1",
         sport_key="soccer_brazil_campeonato",
-        understat_name=None,  # Understat nao cobre Brasileirao
+        understat_name=None,
+    ),
+    League(
+        name="Championship",
+        country="Inglaterra",
+        api_football_id=40,
+        football_data_code="E1",
+        sport_key="soccer_england_championship",
+        understat_name=None,
+    ),
+    League(
+        name="Primeira Liga",
+        country="Portugal",
+        api_football_id=94,
+        football_data_code="P1",
+        sport_key="soccer_portugal_primeira_liga",
+        understat_name=None,
+    ),
+    League(
+        name="Eredivisie",
+        country="Holanda",
+        api_football_id=88,
+        football_data_code="N1",
+        sport_key="soccer_netherlands_eredivisie",
+        understat_name=None,
+    ),
+    League(
+        name="2. Bundesliga",
+        country="Alemanha",
+        api_football_id=79,
+        football_data_code="D2",
+        sport_key="soccer_germany_2_bundesliga",
+        understat_name=None,
     ),
 ]
 

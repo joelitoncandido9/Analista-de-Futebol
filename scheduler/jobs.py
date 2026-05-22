@@ -80,31 +80,41 @@ class FootballScheduler:
                 "match_date": str(pred.get("match_date", ""))[:10],
             }
 
-            # Escanteios
-            corners = pred.get("corners")
-            if corners and corners.get("probabilities"):
-                for key, prob in corners["probabilities"].items():
-                    parts = key.split("_")
-                    rows.append({**base,
-                        "market": "total_corners",
-                        "direction": parts[0],
-                        "line": float(parts[1]),
-                        "probability": round(prob, 4),
-                        "predicted_value": round(corners["predicted_total_corners"], 1),
-                    })
+            for market_key, market_name, predicted_key in [
+                ("corners", "total_corners", "predicted_total_corners"),
+                ("shots", "total_shots", "predicted_total_shots"),
+                ("shots_on_target", "total_shots_on_target", "predicted_total_shots_on_target"),
+                ("fouls", "total_fouls", "predicted_total_fouls"),
+                ("cards", "total_yellow", "predicted_total_yellow"),
+            ]:
+                data = pred.get(market_key)
+                if data and data.get("probabilities"):
+                    for key, prob in data["probabilities"].items():
+                        parts = key.split("_")
+                        rows.append({**base,
+                            "market": market_name,
+                            "direction": parts[0],
+                            "line": float(parts[1]),
+                            "probability": round(prob, 4),
+                            "predicted_value": round(data[predicted_key], 1),
+                        })
 
-            # Finalizações
-            shots = pred.get("shots")
-            if shots and shots.get("probabilities"):
-                for key, prob in shots["probabilities"].items():
-                    parts = key.split("_")
-                    rows.append({**base,
-                        "market": "total_shots",
-                        "direction": parts[0],
-                        "line": float(parts[1]),
-                        "probability": round(prob, 4),
-                        "predicted_value": round(shots["predicted_total_shots"], 1),
-                    })
+            # Escanteios por time (home + away separados)
+            tc = pred.get("team_corners")
+            if tc:
+                for side, market_name in [("home", "home_corners"), ("away", "away_corners")]:
+                    probs = tc.get(f"{side}_probabilities")
+                    pred_key = f"predicted_{side}_corners"
+                    if probs:
+                        for key, prob in probs.items():
+                            parts = key.split("_")
+                            rows.append({**base,
+                                "market": market_name,
+                                "direction": parts[0],
+                                "line": float(parts[1]),
+                                "probability": round(prob, 4),
+                                "predicted_value": round(tc.get(pred_key, 0), 1),
+                            })
 
             # Resultado (Dixon-Coles)
             result = pred.get("result")
@@ -293,6 +303,10 @@ class FootballScheduler:
         from models.corners.corners_predictor import CornersPredictor
         from models.shots.shots_predictor import ShotsPredictor
         from models.results.dixon_coles import DixonColes
+        from models.shots_on_target.shots_on_target_predictor import ShotsOnTargetPredictor
+        from models.fouls.fouls_predictor import FoulsPredictor
+        from models.cards.cards_predictor import CardsPredictor
+        from models.team_corners.team_corners_predictor import TeamCornersPredictor
 
         for fx in fixtures:
             home = fx.get("home_team", "")
@@ -306,6 +320,18 @@ class FootballScheduler:
 
                 sp = ShotsPredictor(league=league)
                 shots = sp.predict(home, away, league, date)
+
+                sot = ShotsOnTargetPredictor(league=league)
+                shots_on_target = sot.predict(home, away, league, date)
+
+                fp = FoulsPredictor(league=league)
+                fouls = fp.predict(home, away, league, date)
+
+                cap = CardsPredictor(league=league)
+                cards = cap.predict(home, away, league, date)
+
+                tcp = TeamCornersPredictor(league=league)
+                team_corners = tcp.predict(home, away, league, date)
 
                 dc = DixonColes(league=league)
                 if dc.load():
@@ -321,6 +347,10 @@ class FootballScheduler:
                     "match_date": date,
                     "corners": corners,
                     "shots": shots,
+                    "shots_on_target": shots_on_target,
+                    "fouls": fouls,
+                    "cards": cards,
+                    "team_corners": team_corners,
                     "result": result,
                 })
 
@@ -333,9 +363,19 @@ class FootballScheduler:
                                        min_conf: float = 0.75) -> list[dict]:
         """Extrai palpites de alta confiança (>75%) das previsões.
 
-        Por partida, retorna no máximo 2 palpites (escanteios + finalizações),
-        priorizando as linhas mais justas (mais próximas do valor previsto).
+        Para cada mercado coberto, seleciona a linha mais justa (>75%),
+        priorizando linhas mais próximas do valor previsto.
         """
+        market_configs = [
+            ("escanteios", "corners", "predicted_total_corners", None),
+            ("finalizações", "shots", "predicted_total_shots", None),
+            ("chutes no gol", "shots_on_target", "predicted_total_shots_on_target", None),
+            ("faltas", "fouls", "predicted_total_fouls", None),
+            ("cartões", "cards", "predicted_total_yellow", None),
+            ("esc. casa", "team_corners", "predicted_home_corners", "home"),
+            ("esc. fora", "team_corners", "predicted_away_corners", "away"),
+        ]
+
         tips = []
         for pred in predictions:
             home = pred["home_team"]
@@ -343,28 +383,34 @@ class FootballScheduler:
             league = pred["league"]
             match = f"{home} x {away}"
 
-            for market, data in [("escanteios", pred.get("corners")),
-                                  ("finalizações", pred.get("shots"))]:
-                if not data or not data.get("probabilities"):
+            for label, key, predicted_key, side in market_configs:
+                data = pred.get(key)
+                if not data:
                     continue
 
-                predicted = data.get(f"predicted_total_{'corners' if market == 'escanteios' else 'shots'}", 0)
+                probs_key = "probabilities"
+                if side:
+                    probs_key = f"{side}_probabilities"
 
-                # Encontrar a linha mais justa (>75%) em qualquer direção
+                probs = data.get(probs_key)
+                if not probs:
+                    continue
+
+                predicted = data.get(predicted_key, 0)
+
                 best_tip = None
-                for key, prob in data["probabilities"].items():
+                for k, prob in probs.items():
                     if prob < min_conf:
                         continue
-                    parts = key.split("_")
+                    parts = k.split("_")
                     direction, line = parts[0], float(parts[1])
 
-                    # Linha mais justa = menor diferença entre a linha e o previsto
                     tightness = abs(line - predicted)
                     if best_tip is None or tightness < best_tip["tightness"]:
                         best_tip = {
                             "match": match,
                             "league": league,
-                            "market": market,
+                            "market": label,
                             "direction": direction,
                             "line": line,
                             "confidence": round(prob * 100, 1),
@@ -386,17 +432,26 @@ class FootballScheduler:
 
         from scheduler.whatsapp import send_text
 
-        market_emoji = {"escanteios": "🥅", "finalizações": "💥"}
+        market_emoji = {
+            "escanteios": "🥅",
+            "finalizações": "💥",
+            "chutes no gol": "🎯",
+            "faltas": "🟨",
+            "cartões": "🟨",
+            "esc. casa": "🏠",
+            "esc. fora": "✈️",
+        }
 
         for tip in tips:
             emoji = market_emoji.get(tip["market"], "📊")
             direction_label = "Under" if tip["direction"] == "under" else "Over"
+            suffix = "" if tip["market"] in ("esc. casa", "esc. fora") else " totais"
             msg = (
                 f"{emoji} *PALPITE {tip['market'].upper()}*\n"
                 f"📋 {tip['match']} ({tip['league']})\n"
-                f"🎯 {direction_label} {tip['line']} {tip['market']}\n"
+                f"🎯 {direction_label} {tip['line']}\n"
                 f"📈 Confiança: {tip['confidence']:.0f}%\n"
-                f"📊 Previsto: {tip['predicted']} totais\n\n"
+                f"📊 Previsto: {tip['predicted']}{suffix}\n\n"
                 f"#{tip['market']} #{direction_label}{tip['line']}"
             )
             try:
