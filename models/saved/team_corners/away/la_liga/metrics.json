@@ -1,0 +1,1 @@
+{"mae_test": 1.7868869304656982, "rmse_test": 2.2793281507266716, "mae_train": 1.4112783670425415, "rmse_train": 2.028232622156561, "n_train": 7072, "n_test": 380, "mean_actual": 4.15, "mean_pred": 3.796704053878784, "league": "La Liga"}

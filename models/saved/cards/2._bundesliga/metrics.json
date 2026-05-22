@@ -1,0 +1,1 @@
+{"mae_test": 1.7788633108139038, "rmse_test": 2.218902797541831, "mae_train": 0.9909772276878357, "rmse_train": 1.4788081939158642, "n_train": 2616, "n_test": 380, "mean_actual": 4.542105263157895, "mean_pred": 4.127853870391846, "league": "2. Bundesliga"}
