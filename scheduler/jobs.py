@@ -101,12 +101,17 @@ class FootballScheduler:
                 except Exception as e:
                     logger.warning(f"[Job] Erro alerta {pred['home_team']}x{pred['away_team']}: {e}")
 
+            # Palpites de alta confianca (>75%)
+            tips = self._extract_high_confidence_tips(predictions)
+            if tips:
+                self._send_confidence_tips(tips)
+
             # Value bets
             value_bets = self._find_value_bets(predictions, fixtures)
             if value_bets:
                 self._send_value_bets_alert(value_bets)
 
-            logger.info(f"[Job] Pre-match concluido: {len(predictions)} previsoes, {len(value_bets)} value bets")
+            logger.info(f"[Job] Pre-match concluido: {len(predictions)} previsoes, {len(value_bets)} value bets, {len(tips)} palpites")
 
         except Exception as e:
             logger.error(f"[Job] Erro pre-match: {e}")
@@ -144,6 +149,11 @@ class FootballScheduler:
                         )
                     except Exception as e:
                         logger.warning(f"[Job] Erro re-check {pred['home_team']}x{pred['away_team']}: {e}")
+
+                # Palpites de alta confiança atualizados
+                tips = self._extract_high_confidence_tips(predictions)
+                if tips:
+                    self._send_confidence_tips(tips, prefix="[Re-check] ")
 
                 value_bets = self._find_value_bets(predictions, upcoming)
                 if value_bets:
@@ -208,17 +218,21 @@ class FootballScheduler:
         predictions = []
 
         from models.corners.corners_predictor import CornersPredictor
+        from models.shots.shots_predictor import ShotsPredictor
         from models.results.dixon_coles import DixonColes
 
         for fx in fixtures:
             home = fx.get("home_team", "")
             away = fx.get("away_team", "")
             league = fx.get("league", "")
-            date = fx.get("match_date", "")
+            date = str(fx.get("match_date", ""))[:10]
 
             try:
                 cp = CornersPredictor(league=league)
                 corners = cp.predict(home, away, league, date)
+
+                sp = ShotsPredictor(league=league)
+                shots = sp.predict(home, away, league, date)
 
                 dc = DixonColes(league=league)
                 if dc.load():
@@ -233,6 +247,7 @@ class FootballScheduler:
                     "league": league,
                     "match_date": date,
                     "corners": corners,
+                    "shots": shots,
                     "result": result,
                 })
 
@@ -240,6 +255,82 @@ class FootballScheduler:
                 logger.warning(f"[Job] Erro prevendo {home}x{away}: {e}")
 
         return predictions
+
+    def _extract_high_confidence_tips(self, predictions: list[dict],
+                                       min_conf: float = 0.75) -> list[dict]:
+        """Extrai palpites de alta confiança (>75%) das previsões.
+
+        Por partida, retorna no máximo 2 palpites (escanteios + finalizações),
+        priorizando as linhas mais justas (mais próximas do valor previsto).
+        """
+        tips = []
+        for pred in predictions:
+            home = pred["home_team"]
+            away = pred["away_team"]
+            league = pred["league"]
+            match = f"{home} x {away}"
+
+            for market, data in [("escanteios", pred.get("corners")),
+                                  ("finalizações", pred.get("shots"))]:
+                if not data or not data.get("probabilities"):
+                    continue
+
+                predicted = data.get(f"predicted_total_{'corners' if market == 'escanteios' else 'shots'}", 0)
+
+                # Encontrar a linha mais justa (>75%) em qualquer direção
+                best_tip = None
+                for key, prob in data["probabilities"].items():
+                    if prob < min_conf:
+                        continue
+                    parts = key.split("_")
+                    direction, line = parts[0], float(parts[1])
+
+                    # Linha mais justa = menor diferença entre a linha e o previsto
+                    tightness = abs(line - predicted)
+                    if best_tip is None or tightness < best_tip["tightness"]:
+                        best_tip = {
+                            "match": match,
+                            "league": league,
+                            "market": market,
+                            "direction": direction,
+                            "line": line,
+                            "confidence": round(prob * 100, 1),
+                            "predicted": round(predicted, 1),
+                            "tightness": tightness,
+                        }
+
+                if best_tip:
+                    del best_tip["tightness"]
+                    tips.append(best_tip)
+
+        tips.sort(key=lambda t: -t["confidence"])
+        return tips
+
+    def _send_confidence_tips(self, tips: list[dict], prefix: str = ""):
+        """Envia palpites de alta confiança via WhatsApp um por um."""
+        if not tips:
+            return
+
+        from scheduler.whatsapp import send_text
+
+        market_emoji = {"escanteios": "🥅", "finalizações": "💥"}
+
+        for tip in tips:
+            emoji = market_emoji.get(tip["market"], "📊")
+            direction_label = "Under" if tip["direction"] == "under" else "Over"
+            msg = (
+                f"{emoji} *PALPITE {tip['market'].upper()}*\n"
+                f"📋 {tip['match']} ({tip['league']})\n"
+                f"🎯 {direction_label} {tip['line']} {tip['market']}\n"
+                f"📈 Confiança: {tip['confidence']:.0f}%\n"
+                f"📊 Previsto: {tip['predicted']} totais\n\n"
+                f"#{tip['market']} #{direction_label}{tip['line']}"
+            )
+            try:
+                ok = send_text(msg)
+                logger.debug(f"[Tips] {'Enviado' if ok else 'Falha'}: {tip['match']} - {direction_label} {tip['line']}")
+            except Exception as e:
+                logger.warning(f"[Tips] Erro: {e}")
 
     def _find_value_bets(self, predictions: list[dict],
                           fixtures: list[dict]) -> list:
