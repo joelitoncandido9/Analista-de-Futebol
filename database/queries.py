@@ -154,3 +154,86 @@ def save_matches(matches: list[dict]):
     conn.commit()
     conn.close()
     return saved
+
+
+def save_predictions(predictions: list[dict]):
+    """Salva previsões no banco para comparação futura."""
+    conn = get_conn()
+    cur = conn.cursor()
+    saved = 0
+    for p in predictions:
+        try:
+            cur.execute(
+                """INSERT OR REPLACE INTO predictions
+                   (fixture_id, home_team, away_team, league, match_date,
+                    market, line, direction, probability,
+                    predicted_value, actual_value, was_correct)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    p.get("fixture_id"),
+                    p.get("home_team"),
+                    p.get("away_team"),
+                    p.get("league"),
+                    p.get("match_date"),
+                    p.get("market"),
+                    p.get("line"),
+                    p.get("direction"),
+                    p.get("probability"),
+                    p.get("predicted_value"),
+                    p.get("actual_value"),
+                    p.get("was_correct"),
+                ),
+            )
+            saved += 1
+        except Exception as e:
+            print(f"  ⚠️ Erro salvando predição {p.get('fixture_id')}: {e}")
+    conn.commit()
+    conn.close()
+    return saved
+
+
+def evaluate_predictions():
+    """Compara previsões com resultados reais e retorna estatísticas de acerto."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE predictions
+        SET actual_value = (
+            CASE WHEN market = 'total_corners' THEN home_corners + away_corners
+                 WHEN market = 'total_shots' THEN home_shots + away_shots
+            END
+        ),
+        was_correct = (
+            CASE
+                WHEN direction = 'over' AND
+                     (CASE WHEN market = 'total_corners' THEN home_corners + away_corners
+                           WHEN market = 'total_shots' THEN home_shots + away_shots
+                     END) > line THEN 1
+                WHEN direction = 'under' AND
+                     (CASE WHEN market = 'total_corners' THEN home_corners + away_corners
+                           WHEN market = 'total_shots' THEN home_shots + away_shots
+                     END) < line THEN 1
+                WHEN actual_value IS NOT NULL THEN 0
+            END
+        )
+        FROM matches
+        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        AND predictions.actual_value IS NULL
+        AND matches.home_corners IS NOT NULL
+    """)
+    updated = cur.rowcount
+
+    cur.execute("""
+        SELECT market, direction, line,
+               COUNT(*) as total,
+               SUM(was_correct) as hits,
+               ROUND(AVG(was_correct), 3) as accuracy
+        FROM predictions
+        WHERE was_correct IS NOT NULL
+        GROUP BY market, direction, line
+        ORDER BY accuracy DESC
+    """)
+    stats = [dict(r) for r in cur.fetchall()]
+    conn.commit()
+    conn.close()
+    return {"evaluated": updated, "stats": stats}

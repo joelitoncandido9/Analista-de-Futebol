@@ -66,6 +66,62 @@ class FootballScheduler:
 
     # --- Job implementations ---
 
+    def _save_all_predictions(self, predictions: list[dict]):
+        """Salva todas as linhas de previsão no banco para comparação futura."""
+        from database.queries import save_predictions
+
+        rows = []
+        for pred in predictions:
+            base = {
+                "fixture_id": pred.get("fixture_id", ""),
+                "home_team": pred["home_team"],
+                "away_team": pred["away_team"],
+                "league": pred["league"],
+                "match_date": str(pred.get("match_date", ""))[:10],
+            }
+
+            # Escanteios
+            corners = pred.get("corners")
+            if corners and corners.get("probabilities"):
+                for key, prob in corners["probabilities"].items():
+                    parts = key.split("_")
+                    rows.append({**base,
+                        "market": "total_corners",
+                        "direction": parts[0],
+                        "line": float(parts[1]),
+                        "probability": round(prob, 4),
+                        "predicted_value": round(corners["predicted_total_corners"], 1),
+                    })
+
+            # Finalizações
+            shots = pred.get("shots")
+            if shots and shots.get("probabilities"):
+                for key, prob in shots["probabilities"].items():
+                    parts = key.split("_")
+                    rows.append({**base,
+                        "market": "total_shots",
+                        "direction": parts[0],
+                        "line": float(parts[1]),
+                        "probability": round(prob, 4),
+                        "predicted_value": round(shots["predicted_total_shots"], 1),
+                    })
+
+            # Resultado (Dixon-Coles)
+            result = pred.get("result")
+            if result:
+                for outcome, label in [("prob_home", "home"), ("prob_draw", "draw"), ("prob_away", "away")]:
+                    rows.append({**base,
+                        "market": "result",
+                        "direction": label,
+                        "line": 0,
+                        "probability": round(result.get(outcome, 0), 4),
+                        "predicted_value": result.get("most_likely_score", ""),
+                    })
+
+        saved = save_predictions(rows)
+        logger.info(f"[Predictions] {saved} linhas salvas no banco")
+        return saved
+
     def job_pre_match(self):
         """Gera pre-match predictions para jogos do dia."""
         logger.info("[Job] Iniciando pre-match predictions...")
@@ -84,6 +140,9 @@ class FootballScheduler:
 
             # Predicoes para cada jogo
             predictions = self._predict_fixtures(fixtures)
+
+            # Salva previsões no banco para comparação futura
+            self._save_all_predictions(predictions)
 
             # Envia alerta pre-match individual para cada jogo
             from scheduler.alerts import alert_pre_match
@@ -134,6 +193,9 @@ class FootballScheduler:
             if upcoming:
                 predictions = self._predict_fixtures(upcoming)
 
+                # Salva previsões no banco
+                self._save_all_predictions(predictions)
+
                 # Re-envia alertas individuais com dados atualizados
                 from scheduler.alerts import alert_pre_match
 
@@ -178,6 +240,15 @@ class FootballScheduler:
             from config.settings import DB_PATH
             logger.info("[Job] Executando merge de dados...")
             merge_all()
+
+            # Avaliar previsões com os resultados reais
+            from database.queries import evaluate_predictions
+            result = evaluate_predictions()
+            if result["evaluated"] > 0:
+                logger.info(f"[Job] {result['evaluated']} previsões avaliadas")
+                for s in result["stats"]:
+                    logger.info(f"  {s['market']} {s['direction']} {s['line']}: "
+                                f"{s['hits']}/{s['total']} ({s['accuracy']:.1%})")
 
             logger.info("[Job] Coleta de resultados concluida")
 

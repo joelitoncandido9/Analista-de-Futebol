@@ -138,6 +138,26 @@ CREATE INDEX IF NOT EXISTS idx_matches_teams ON matches(home_team, away_team);
 CREATE INDEX IF NOT EXISTS idx_team_stats_match ON team_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_player_stats_match ON player_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_odds_match ON odds(match_id);
+
+CREATE TABLE IF NOT EXISTS predictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fixture_id TEXT,
+    home_team TEXT,
+    away_team TEXT,
+    league TEXT,
+    match_date TEXT,
+    market TEXT,
+    line REAL,
+    direction TEXT,
+    probability REAL,
+    predicted_value REAL,
+    actual_value REAL,
+    was_correct INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_predictions_match ON predictions(fixture_id);
+CREATE INDEX IF NOT EXISTS idx_predictions_date ON predictions(match_date);
 """
 
 
