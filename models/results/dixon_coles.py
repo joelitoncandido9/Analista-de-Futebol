@@ -33,6 +33,139 @@ def _params_path(league: str) -> Path:
     return MODELS_DIR / "results" / f"dc_params_{league.lower().replace(' ', '_')}.json"
 
 
+# Mapeamento de nomes de times: API-Football → football-data.co.uk
+# Necessário porque a API retorna nomes completos e o modelo foi treinado com
+# abreviações do football-data.co.uk
+TEAM_NAME_MAP = {
+    # La Liga
+    "Real Betis": "Betis",
+    "Celta Vigo": "Celta",
+    "Espanyol": "Espanol",
+    "Real Sociedad": "Sociedad",
+    "Athletic Club": "Ath Bilbao",
+    "Athletic Club Bilbao": "Ath Bilbao",
+    "Rayo Vallecano": "Vallecano",
+    "UD Almeria": "Almeria",
+    "Almeria": "Almeria",
+    "Real Valladolid": "Valladolid",
+    "Deportivo Alaves": "Alaves",
+    "RCD Mallorca": "Mallorca",
+    "Cadiz CF": "Cadiz",
+    "CD Leganes": "Leganes",
+    # Serie A
+    "AC Milan": "Milan",
+    "Inter Milan": "Inter",
+    "Inter": "Inter",
+    "AS Roma": "Roma",
+    "SS Lazio": "Lazio",
+    "Lazio": "Lazio",
+    "ACF Fiorentina": "Fiorentina",
+    "Hellas Verona": "Verona",
+    "US Lecce": "Lecce",
+    "Bologna FC": "Bologna",
+    "Bologna 1909": "Bologna",
+    "Parma Calcio 1913": "Parma",
+    "Parma": "Parma",
+    "Venezia FC": "Venezia",
+    "Como": "Como 1907",
+    "Como 1907": "Como 1907",
+    # Premier League
+    "Manchester City": "Man City",
+    "Manchester United": "Man United",
+    "Newcastle United": "Newcastle",
+    "Tottenham Hotspur": "Tottenham",
+    "Tottenham": "Tottenham",
+    "Wolverhampton Wanderers": "Wolves",
+    "Wolves": "Wolves",
+    "Nottingham Forest": "Nott'm Forest",
+    "Brighton & Hove Albion": "Brighton",
+    "Brighton": "Brighton",
+    "Leicester City": "Leicester",
+    "Ipswich Town": "Ipswich",
+    "West Ham United": "West Ham",
+    # Bundesliga
+    "Borussia Dortmund": "Dortmund",
+    "Borussia M'gladbach": "M'gladbach",
+    "Borussia Mönchengladbach": "M'gladbach",
+    "Bayer Leverkusen": "Leverkusen",
+    "RB Leipzig": "Leipzig",
+    "Leipzig": "Leipzig",
+    "Eintracht Frankfurt": "Frankfurt",
+    "FSV Mainz 05": "Mainz",
+    "Mainz": "Mainz",
+    "VfB Stuttgart": "Stuttgart",
+    "FC Augsburg": "Augsburg",
+    "Werder Bremen": "Bremen",
+    "VfL Wolfsburg": "Wolfsburg",
+    "TSG Hoffenheim": "Hoffenheim",
+    "1. FC Heidenheim 1846": "Heidenheim",
+    "Heidenheim": "Heidenheim",
+    "1. FC Union Berlin": "Union Berlin",
+    "Union Berlin": "Union Berlin",
+    "SC Freiburg": "Freiburg",
+    "VfL Bochum": "Bochum",
+    "Holstein Kiel": "Holstein Kiel",
+    "St. Pauli": "St Pauli",
+    "FC St. Pauli": "St Pauli",
+    "FC St Pauli": "St Pauli",
+    # Ligue 1
+    "Paris Saint Germain": "PSG",
+    "Paris Saint-Germain": "PSG",
+    "AS Monaco": "Monaco",
+    "Olympique Marseille": "Marseille",
+    "Olympique Lyonnais": "Lyon",
+    "Lyon": "Lyon",
+    "LOSC Lille": "Lille",
+    "Lille": "Lille",
+    "OGC Nice": "Nice",
+    "Montpellier HSC": "Montpellier",
+    "Stade Rennais": "Rennes",
+    "Rennes": "Rennes",
+    "Stade de Reims": "Reims",
+    "Stade Brestois 29": "Brest",
+    "Brest": "Brest",
+    "RC Lens": "Lens",
+    "FC Nantes": "Nantes",
+    "Toulouse FC": "Toulouse",
+    "AS Saint-Etienne": "St Etienne",
+    "Saint-Etienne": "St Etienne",
+    "Angers SCO": "Angers",
+    "Angers": "Angers",
+    "Le Havre AC": "Le Havre",
+    "Le Havre": "Le Havre",
+    "AJ Auxerre": "Auxerre",
+    "Strasbourg": "Strasbourg",
+    "RC Strasbourg Alsace": "Strasbourg",
+    # Brasileirão (nomes API-Football → football_data.db)
+    "Botafogo": "Botafogo RJ",
+    "Botafogo RJ": "Botafogo RJ",
+    "Botafogo-RJ": "Botafogo RJ",
+    "Flamengo": "Flamengo RJ",
+    "Flamengo RJ": "Flamengo RJ",
+    "Flamengo-RJ": "Flamengo RJ",
+    "Athletico Paranaense": "Athletico-PR",
+    "Athletico-PR": "Athletico-PR",
+    "Athletico PR": "Athletico-PR",
+    "Atletico Mineiro": "Atletico-MG",
+    "Atlético Mineiro": "Atletico-MG",
+    "Atlético-MG": "Atletico-MG",
+    "Atletico-MG": "Atletico-MG",
+    "Atletico Goianiense": "Atletico GO",
+    "Atlético Goianiense": "Atletico GO",
+    "Atletico-GO": "Atletico GO",
+    "Cuiaba": "Cuiaba",
+    "Cuiabá": "Cuiaba",
+    "Fortaleza": "Fortaleza",
+    "Fortaleza EC": "Fortaleza",
+    "Vasco": "Vasco",
+    "Vasco da Gama": "Vasco",
+    "Vasco DG": "Vasco",
+    "RB Bragantino": "Bragantino",
+    "Red Bull Bragantino": "Bragantino",
+    "Bragantino": "Bragantino",
+}
+
+
 class DixonColes:
     """Modelo Dixon-Coles para resultados de partidas.
 
@@ -79,7 +212,7 @@ class DixonColes:
         """
         logger.info(f"[Dixon-Coles] Carregando dados para {self.league or 'todas ligas'}...")
 
-        df = load_matches(league=self.league)
+        df = load_matches(league=self.league, require_corners=False)
         if df.empty:
             logger.error("[Dixon-Coles] Sem dados")
             return {}
@@ -223,6 +356,15 @@ class DixonColes:
             return 1.0 - rho
         return 1.0
 
+    def _resolve_team_name(self, name: str) -> str:
+        """Tenta resolver nome do time via lookup direto ou mapeamento."""
+        if name in self.team_idx:
+            return name
+        mapped = TEAM_NAME_MAP.get(name)
+        if mapped and mapped in self.team_idx:
+            return mapped
+        return name
+
     def predict(self, home_team: str, away_team: str,
                 max_goals: int = 10) -> tuple[float, float, float]:
         """Preve probabilidades de resultado.
@@ -234,8 +376,10 @@ class DixonColes:
             logger.error("[Dixon-Coles] Modelo nao treinado")
             return (0.0, 0.0, 0.0)
 
-        team_h = self.team_idx.get(home_team)
-        team_a = self.team_idx.get(away_team)
+        home_resolved = self._resolve_team_name(home_team)
+        away_resolved = self._resolve_team_name(away_team)
+        team_h = self.team_idx.get(home_resolved)
+        team_a = self.team_idx.get(away_resolved)
         if team_h is None or team_a is None:
             logger.warning(f"[Dixon-Coles] Time nao encontrado: {home_team if team_h is None else away_team}")
             return (0.0, 0.0, 0.0)
@@ -265,8 +409,10 @@ class DixonColes:
         """Preve resultado mais provavel + distribuicao de gols."""
         probs = self.predict(home_team, away_team)
 
-        team_h = self.team_idx.get(home_team)
-        team_a = self.team_idx.get(away_team)
+        home_resolved = self._resolve_team_name(home_team)
+        away_resolved = self._resolve_team_name(away_team)
+        team_h = self.team_idx.get(home_resolved)
+        team_a = self.team_idx.get(away_resolved)
         if team_h is None or team_a is None:
             return {
                 "home_team": home_team, "away_team": away_team,

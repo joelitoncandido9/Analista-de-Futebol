@@ -25,8 +25,14 @@ def _conn() -> sqlite3.Connection:
 
 def load_matches(league: str | None = None,
                  min_date: str | None = None,
-                 max_date: str | None = None) -> pd.DataFrame:
-    """Carrega partidas do banco como DataFrame, ordenadas por data."""
+                 max_date: str | None = None,
+                 require_corners: bool = True) -> pd.DataFrame:
+    """Carrega partidas do banco como DataFrame, ordenadas por data.
+
+    Args:
+        require_corners: Se True (padrão), só retorna partidas com escanteios.
+                         Para Dixon-Coles (só precisa de gols), usar False.
+    """
     conn = _conn()
     query = """SELECT id, match_id, league, season, match_date,
                       home_team, away_team,
@@ -42,7 +48,10 @@ def load_matches(league: str | None = None,
                       home_ppda, away_ppda,
                       home_deep, away_deep
                FROM matches
-               WHERE home_corners IS NOT NULL"""
+               WHERE 1=1"""
+
+    if require_corners:
+        query += " AND home_corners IS NOT NULL"
 
     params = []
     if league:
