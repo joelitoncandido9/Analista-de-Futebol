@@ -66,12 +66,19 @@ def send_whatsapp(message: str) -> bool:
 def alert_pre_match(home: str, away: str, league: str,
                      corners_pred: dict | None = None,
                      result_pred: dict | None = None,
-                     value_bets: list | None = None) -> bool:
+                     value_bets: list | None = None,
+                     match_date: str | None = None) -> bool:
     """Envia relatorio pre-jogo."""
+    display_date = match_date or date.today().strftime('%Y-%m-%d')
+    try:
+        display_date = datetime.strptime(display_date[:10], '%Y-%m-%d').strftime('%d/%m/%Y')
+    except (ValueError, TypeError):
+        display_date = date.today().strftime('%d/%m/%Y')
+
     lines = [
         f"*PRE-MATCH: {home} x {away}*",
         f"Liga: {league}",
-        f"Data: {date.today().strftime('%d/%m/%Y')}",
+        f"Data: {display_date}",
         "",
     ]
 

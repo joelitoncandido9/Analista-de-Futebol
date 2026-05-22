@@ -156,6 +156,7 @@ class FootballScheduler:
                         corners_pred=pred.get("corners"),
                         result_pred=pred.get("result"),
                         value_bets=None,
+                        match_date=pred.get("match_date"),
                     )
                 except Exception as e:
                     logger.warning(f"[Job] Erro alerta {pred['home_team']}x{pred['away_team']}: {e}")
@@ -208,6 +209,7 @@ class FootballScheduler:
                             corners_pred=pred.get("corners"),
                             result_pred=pred.get("result"),
                             value_bets=None,
+                            match_date=pred.get("match_date"),
                         )
                     except Exception as e:
                         logger.warning(f"[Job] Erro re-check {pred['home_team']}x{pred['away_team']}: {e}")
