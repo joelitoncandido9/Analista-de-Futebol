@@ -1,0 +1,17 @@
+# Dynamic config - Football AI API
+http:
+  routers:
+    football_api:
+      rule: "Host(`football.seubot.online`)"
+      entrypoints:
+        - websecure
+      service: football_api
+      tls:
+        certresolver: letsencryptresolver
+
+  services:
+    football_api:
+      loadBalancer:
+        servers:
+          - url: "http://172.18.0.1:8001"
+        passHostHeader: true
