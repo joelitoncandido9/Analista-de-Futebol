@@ -1,0 +1,37 @@
+{
+  "model_type": "corners",
+  "league": "Brasileirao",
+  "n_tests": 760,
+  "mae": 2.903,
+  "rmse": 3.656,
+  "bias": -0.02,
+  "mean_actual": 9.95,
+  "mean_predicted": 9.93,
+  "line_accuracy": {
+    "over_8.5": {
+      "predicted_rate": 0.85,
+      "actual_rate": 0.6474,
+      "error": 0.2026
+    },
+    "over_9.5": {
+      "predicted_rate": 0.6066,
+      "actual_rate": 0.5197,
+      "error": 0.0868
+    },
+    "over_10.5": {
+      "predicted_rate": 0.3224,
+      "actual_rate": 0.4145,
+      "error": -0.0921
+    },
+    "over_11.5": {
+      "predicted_rate": 0.1342,
+      "actual_rate": 0.2987,
+      "error": -0.1645
+    },
+    "over_12.5": {
+      "predicted_rate": 0.0434,
+      "actual_rate": 0.2197,
+      "error": -0.1763
+    }
+  }
+}
