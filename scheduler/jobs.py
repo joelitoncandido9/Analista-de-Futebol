@@ -85,10 +85,24 @@ class FootballScheduler:
             # Predicoes para cada jogo
             predictions = self._predict_fixtures(fixtures)
 
+            # Envia alerta pre-match individual para cada jogo
+            from scheduler.alerts import alert_pre_match
+
+            for pred in predictions:
+                try:
+                    alert_pre_match(
+                        home=pred["home_team"],
+                        away=pred["away_team"],
+                        league=pred["league"],
+                        corners_pred=pred.get("corners"),
+                        result_pred=pred.get("result"),
+                        value_bets=None,
+                    )
+                except Exception as e:
+                    logger.warning(f"[Job] Erro alerta {pred['home_team']}x{pred['away_team']}: {e}")
+
             # Value bets
             value_bets = self._find_value_bets(predictions, fixtures)
-
-            # Alertas
             if value_bets:
                 self._send_value_bets_alert(value_bets)
 
@@ -98,14 +112,12 @@ class FootballScheduler:
             logger.error(f"[Job] Erro pre-match: {e}")
 
     def job_recheck(self):
-        """Re-check predictions ao meio-dia."""
+        """Re-check predictions ao meio-dia com alertas individuais."""
         logger.info("[Job] Re-check meio-dia...")
-        # Mesma logica do pre_match mas sem alertas
         try:
             from collectors.api_football_collector import APIFootballCollector
 
             api = APIFootballCollector()
-            # Buscar fixtures do dia
             today = date.today().strftime("%Y-%m-%d")
             fixtures = api.get_fixtures(today)
             if not fixtures:
@@ -116,6 +128,23 @@ class FootballScheduler:
 
             if upcoming:
                 predictions = self._predict_fixtures(upcoming)
+
+                # Re-envia alertas individuais com dados atualizados
+                from scheduler.alerts import alert_pre_match
+
+                for pred in predictions:
+                    try:
+                        alert_pre_match(
+                            home=pred["home_team"],
+                            away=pred["away_team"],
+                            league=pred["league"],
+                            corners_pred=pred.get("corners"),
+                            result_pred=pred.get("result"),
+                            value_bets=None,
+                        )
+                    except Exception as e:
+                        logger.warning(f"[Job] Erro re-check {pred['home_team']}x{pred['away_team']}: {e}")
+
                 value_bets = self._find_value_bets(predictions, upcoming)
                 if value_bets:
                     self._send_value_bets_alert(value_bets, prefix="[Re-check] ")

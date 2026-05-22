@@ -59,7 +59,7 @@ class LLMClient:
         model = OPENROUTER_MODEL
 
         try:
-            if hasattr(client, "messages") and hasattr(client.messages, "create"):
+            if hasattr(client, "chat") and hasattr(client.chat.completions, "create"):
                 # OpenAI-compatible (OpenRouter)
                 response = client.chat.completions.create(
                     model=model,

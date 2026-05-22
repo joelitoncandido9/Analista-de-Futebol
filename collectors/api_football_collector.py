@@ -81,6 +81,7 @@ class APIFootballCollector(BaseCollector):
             fixture = r["fixture"]
             teams = r["teams"]
 
+            goals = r.get("goals") or {}
             fixtures.append({
                 "fixture_id": str(fixture["id"]),
                 "date": date,
@@ -89,8 +90,8 @@ class APIFootballCollector(BaseCollector):
                 "away_team": teams["away"]["name"],
                 "venue": fixture.get("venue", {}).get("name", ""),
                 "status": fixture["status"]["short"],
-                "home_goals": teams["home"].get("goals") or fixture["goals"].get("home"),
-                "away_goals": teams["away"].get("goals") or fixture["goals"].get("away"),
+                "home_goals": teams["home"].get("goals") or goals.get("home"),
+                "away_goals": teams["away"].get("goals") or goals.get("away"),
                 "match_date": fixture.get("date", ""),
             })
 
