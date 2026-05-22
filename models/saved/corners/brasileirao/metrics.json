@@ -1,0 +1,1 @@
+{"mae_test": 2.7118537425994873, "rmse_test": 3.4169013400237436, "mae_train": 1.3618617057800293, "rmse_train": 2.1849399300006356, "n_train": 1644, "n_test": 380, "mean_actual": 9.807894736842105, "mean_pred": 9.643446922302246, "league": "Brasileirao"}

@@ -224,8 +224,11 @@ def build_dataset(league: str | None = None,
         feats = build_match_features(row, df)
         if feats["home_total_games"] < min_data_games or feats["away_total_games"] < min_data_games:
             continue
+        target_val = row.get(target_col)
+        if target_val is None or (isinstance(target_val, float) and np.isnan(target_val)):
+            continue
         rows.append(feats)
-        targets.append(row.get(target_col))
+        targets.append(target_val)
 
     X = pd.DataFrame(rows)
     y = pd.Series(targets, name=target_col)

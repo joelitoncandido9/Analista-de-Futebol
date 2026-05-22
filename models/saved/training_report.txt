@@ -1,14 +1,14 @@
 ======================================================================
 RELATORIO DE TREINAMENTO - FOOTBALL AI
-Gerado em: 2026-05-21 22:19
+Gerado em: 2026-05-22 00:10
 ======================================================================
 
 ──────────────────────────────────────────────────
-  Premier League
+  Serie A
 ──────────────────────────────────────────────────
-  Escanteios  | MAE: 2.85 | RMSE: 3.54 | Teste: 380 jogos
-  Finalizacoes | MAE: 5.14 | RMSE: 6.47 | Teste: 380 jogos
-  Dixon-Coles | 46 times, 8740 partidas, Home Adv: 1.06
+  Escanteios  | MAE: 2.83 | RMSE: 3.58 | Teste: 380 jogos
+  Finalizacoes | MAE: 4.61 | RMSE: 5.76 | Teste: 380 jogos
+  Dixon-Coles | 44 times, 7589 partidas, Home Adv: 1.09
 
 ======================================================================
 FIM DO RELATORIO
