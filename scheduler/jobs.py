@@ -53,6 +53,15 @@ class FootballScheduler:
             misfire_grace_time=1800,
         )
 
+        # 22:55 — Backup para Backblaze B2
+        self.scheduler.add_job(
+            self.job_backup,
+            CronTrigger(hour=22, minute=55),
+            id="daily_backup",
+            name="Daily backup to B2",
+            misfire_grace_time=3600,
+        )
+
         # 23:00 — Relatorio diario
         self.scheduler.add_job(
             self.job_daily_report,
@@ -62,7 +71,7 @@ class FootballScheduler:
             misfire_grace_time=3600,
         )
 
-        logger.info("[Scheduler] Jobs registrados: pre_match(07:00), recheck(12:00), collect(19:30), report(23:00)")
+        logger.info("[Scheduler] Jobs registrados: pre_match(07:00), recheck(12:00), collect(19:30), backup(22:55), report(23:00)")
 
     # --- Job implementations ---
 
@@ -266,6 +275,20 @@ class FootballScheduler:
 
         except Exception as e:
             logger.error(f"[Job] Erro coleta resultados: {e}")
+
+    def job_backup(self):
+        """Executa backup para Backblaze B2."""
+        import subprocess
+
+        logger.info("[Job] Iniciando backup...")
+        try:
+            result = subprocess.run(["/root/backup.sh"], capture_output=True, text=True, timeout=120)
+            if result.returncode == 0:
+                logger.info(f"[Job] Backup concluido: {result.stdout.strip()}")
+            else:
+                logger.error(f"[Job] Erro backup: {result.stderr}")
+        except Exception as e:
+            logger.error(f"[Job] Erro backup: {e}")
 
     def job_daily_report(self):
         """Gera relatorio diario e indexa RAG."""
