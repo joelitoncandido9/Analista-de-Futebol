@@ -282,6 +282,9 @@ class FootballScheduler:
                     logger.info(f"  {s['market']} {s['direction']} {s['line']}: "
                                 f"{s['hits']}/{s['total']} ({s['accuracy']:.1%})")
 
+            # Enviar resultado dos palpites (1 por mercado) no WhatsApp
+            self._send_tip_results()
+
             logger.info("[Job] Coleta de resultados concluida")
 
         except Exception as e:
@@ -625,6 +628,91 @@ class FootballScheduler:
             send_telegram(msg)
         except Exception as e:
             logger.warning(f"[Job] Erro ao enviar alerta: {e}")
+
+    def _send_tip_results(self):
+        """Envia resultado dos palpites (1 por mercado por jogo) no WhatsApp."""
+        try:
+            from database.schema import get_conn
+            from scheduler.whatsapp import send_text
+            from collections import OrderedDict
+
+            conn = get_conn()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT p.fixture_id, p.home_team, p.away_team, p.market,
+                       p.direction, p.line, p.probability, p.predicted_value,
+                       p.actual_value, p.was_correct,
+                       m.home_goals, m.away_goals, m.league
+                FROM predictions p
+                JOIN matches m ON 'api_' || p.fixture_id = m.match_id
+                WHERE p.probability >= 0.75 AND p.was_correct IS NOT NULL
+                ORDER BY p.fixture_id, p.market, p.line
+            """)
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+
+            if not rows:
+                return
+
+            # 1 per (fixture, market) — closest line to predicted_value
+            market_map = {}
+            for r in rows:
+                key = (r["fixture_id"], r["market"])
+                tightness = abs(r["line"] - (r["predicted_value"] or 0))
+                if key not in market_map or tightness < market_map[key]["tightness"]:
+                    market_map[key] = {**r, "tightness": tightness}
+
+            tips = list(market_map.values())
+
+            market_emoji = {
+                "total_corners": "🥅", "total_shots": "💥",
+                "total_shots_on_target": "🎯", "total_fouls": "🟨",
+                "total_yellow": "🟨", "home_corners": "🏠",
+                "away_corners": "✈️", "total_goals": "⚽",
+                "btts": "🤝", "double_chance": "🛡️",
+            }
+            market_label = {
+                "total_corners": "Escanteios", "total_shots": "Finalizações",
+                "total_shots_on_target": "Ch. gol", "total_fouls": "Faltas",
+                "total_yellow": "Amarelos", "home_corners": "Esc. casa",
+                "away_corners": "Esc. fora", "total_goals": "Gols",
+                "btts": "BTTS", "double_chance": "DC",
+            }
+
+            # Group by match
+            grouped = OrderedDict()
+            for t in tips:
+                key = f"{t['home_team']} x {t['away_team']}"
+                if key not in grouped:
+                    grouped[key] = {"tips": []}
+                grouped[key]["tips"].append(t)
+
+            for match, data in grouped.items():
+                hits = sum(1 for t in data["tips"] if t["was_correct"])
+                total = len(data["tips"])
+                pct = hits / total * 100
+                lines = [f"📋 *{match}* — *{hits}/{total} ({pct:.0f}%)*\n"]
+
+                for t in data["tips"]:
+                    status = "✅" if t["was_correct"] else "❌"
+                    em = market_emoji.get(t["market"], "📊")
+                    ml = market_label.get(t["market"], t["market"])
+                    d = t["direction"]
+                    if d == "over": dl = "Over"
+                    elif d == "under": dl = "Under"
+                    elif d in ("sim", "nao"): dl = "Sim" if d == "sim" else "Não"
+                    elif d == "casa-empate": dl = "Casa/Emp"
+                    elif d == "fora-empate": dl = "Fora/Emp"
+                    else: dl = d
+                    conf = f"{t['probability']:.0%}"
+                    lines.append(f"{status} {em} {ml}: {dl} {t['line']} (real: {t['actual_value']}) {conf}")
+
+                msg = "\n".join(lines)
+                send_text(msg)
+                logger.info(f"[TipResult] Enviado: {match} ({hits}/{total})")
+
+        except Exception as e:
+            logger.warning(f"[TipResult] Erro ao enviar resultados: {e}")
 
     def start(self):
         """Inicia o scheduler."""
