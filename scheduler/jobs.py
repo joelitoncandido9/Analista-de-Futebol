@@ -137,6 +137,45 @@ class FootballScheduler:
                         "predicted_value": result.get("most_likely_score", ""),
                     })
 
+            # O/U Gols via Dixon-Coles
+            goals = pred.get("goals")
+            if goals and goals.get("probabilities"):
+                for key, prob in goals["probabilities"].items():
+                    parts = key.split("_")
+                    rows.append({**base,
+                        "market": "total_goals",
+                        "direction": parts[0],
+                        "line": float(parts[1]),
+                        "probability": round(prob, 4),
+                        "predicted_value": round(goals["predicted_total_goals"], 1),
+                    })
+
+            # BTTS via Dixon-Coles
+            btts = pred.get("btts")
+            if btts and btts.get("probabilities"):
+                for key, prob in btts["probabilities"].items():
+                    parts = key.split("_")
+                    rows.append({**base,
+                        "market": "btts",
+                        "direction": parts[0],
+                        "line": float(parts[1]),
+                        "probability": round(prob, 4),
+                        "predicted_value": round(btts.get("btts_prob", 0), 4),
+                    })
+
+            # Double Chance via Dixon-Coles
+            dc = pred.get("double_chance")
+            if dc and dc.get("probabilities"):
+                for key, prob in dc["probabilities"].items():
+                    parts = key.split("_")
+                    rows.append({**base,
+                        "market": "double_chance",
+                        "direction": parts[0],
+                        "line": float(parts[1]),
+                        "probability": round(prob, 4),
+                        "predicted_value": 0,
+                    })
+
         saved = save_predictions(rows)
         logger.info(f"[Predictions] {saved} linhas salvas no banco")
         return saved
@@ -163,22 +202,8 @@ class FootballScheduler:
             # Salva previsões no banco para comparação futura
             self._save_all_predictions(predictions)
 
-            # Envia alerta pre-match individual para cada jogo
-            from scheduler.alerts import alert_pre_match
-
-            for pred in predictions:
-                try:
-                    alert_pre_match(
-                        home=pred["home_team"],
-                        away=pred["away_team"],
-                        league=pred["league"],
-                        corners_pred=pred.get("corners"),
-                        result_pred=pred.get("result"),
-                        value_bets=None,
-                        match_date=pred.get("match_date"),
-                    )
-                except Exception as e:
-                    logger.warning(f"[Job] Erro alerta {pred['home_team']}x{pred['away_team']}: {e}")
+            # Envia alerta pre-match consolidado por liga
+            self._send_pre_match_consolidated(predictions)
 
             # Palpites de alta confianca (>75%)
             tips = self._extract_high_confidence_tips(predictions)
@@ -216,22 +241,8 @@ class FootballScheduler:
                 # Salva previsões no banco
                 self._save_all_predictions(predictions)
 
-                # Re-envia alertas individuais com dados atualizados
-                from scheduler.alerts import alert_pre_match
-
-                for pred in predictions:
-                    try:
-                        alert_pre_match(
-                            home=pred["home_team"],
-                            away=pred["away_team"],
-                            league=pred["league"],
-                            corners_pred=pred.get("corners"),
-                            result_pred=pred.get("result"),
-                            value_bets=None,
-                            match_date=pred.get("match_date"),
-                        )
-                    except Exception as e:
-                        logger.warning(f"[Job] Erro re-check {pred['home_team']}x{pred['away_team']}: {e}")
+                # Re-envia alertas consolidados
+                self._send_pre_match_consolidated(predictions, prefix="[Re-check] ")
 
                 # Palpites de alta confiança atualizados
                 tips = self._extract_high_confidence_tips(predictions)
@@ -326,6 +337,9 @@ class FootballScheduler:
         from models.corners.corners_predictor import CornersPredictor
         from models.shots.shots_predictor import ShotsPredictor
         from models.results.dixon_coles import DixonColes
+        from models.results.dixon_coles_markets import (
+            compute_btts, compute_over_under, compute_double_chance,
+        )
         from models.shots_on_target.shots_on_target_predictor import ShotsOnTargetPredictor
         from models.fouls.fouls_predictor import FoulsPredictor
         from models.cards.cards_predictor import CardsPredictor
@@ -359,8 +373,17 @@ class FootballScheduler:
                 dc = DixonColes(league=league)
                 if dc.load():
                     result = dc.predict_score(home, away)
+                    # Only compute derived markets if model found both teams
+                    if result.get("prob_home", 0) > 0 or result.get("prob_draw", 0) > 0 or result.get("prob_away", 0) > 0:
+                        score_probs = result.get("score_probabilities", {})
+                        goals = compute_over_under(score_probs)
+                        btts = compute_btts(score_probs)
+                        double_chance = compute_double_chance(score_probs)
+                    else:
+                        goals = btts = double_chance = None
                 else:
                     result = None
+                    goals = btts = double_chance = None
 
                 predictions.append({
                     "fixture_id": fx.get("fixture_id"),
@@ -375,6 +398,9 @@ class FootballScheduler:
                     "cards": cards,
                     "team_corners": team_corners,
                     "result": result,
+                    "goals": goals,
+                    "btts": btts,
+                    "double_chance": double_chance,
                 })
 
             except Exception as e:
@@ -397,6 +423,9 @@ class FootballScheduler:
             ("cartões", "cards", "predicted_total_yellow", None),
             ("esc. casa", "team_corners", "predicted_home_corners", "home"),
             ("esc. fora", "team_corners", "predicted_away_corners", "away"),
+            ("gols", "goals", "predicted_total_goals", None),
+            ("BTTS", "btts", "btts_prob", None),
+            ("Double Chance", "double_chance", "predicted_double_chance", None),
         ]
 
         tips = []
@@ -428,7 +457,10 @@ class FootballScheduler:
                     parts = k.split("_")
                     direction, line = parts[0], float(parts[1])
 
-                    tightness = abs(line - predicted)
+                    # tightness = how close the line is to the predicted value
+                    # for non-numeric predictions (e.g., double chance), use 0
+                    predicted_num = predicted if isinstance(predicted, (int, float)) else 0
+                    tightness = abs(line - predicted_num)
                     if best_tip is None or tightness < best_tip["tightness"]:
                         best_tip = {
                             "match": match,
@@ -437,7 +469,7 @@ class FootballScheduler:
                             "direction": direction,
                             "line": line,
                             "confidence": round(prob * 100, 1),
-                            "predicted": round(predicted, 1),
+                            "predicted": round(predicted_num, 1) if isinstance(predicted_num, float) else predicted,
                             "tightness": tightness,
                         }
 
@@ -448,8 +480,60 @@ class FootballScheduler:
         tips.sort(key=lambda t: -t["confidence"])
         return tips
 
+    def _send_pre_match_consolidated(self, predictions: list[dict], prefix: str = ""):
+        """Envia alertas pre-match consolidados por liga."""
+        if not predictions:
+            return
+
+        from scheduler.alerts import _send_both
+
+        from collections import OrderedDict
+
+        by_league: dict[str, list[dict]] = OrderedDict()
+        for pred in predictions:
+            league = pred["league"]
+            if league not in by_league:
+                by_league[league] = []
+            by_league[league].append(pred)
+
+        for league, preds in by_league.items():
+            league_preds = [
+                p for p in preds
+                if p.get("result") and p["result"].get("prob_home", 0) > 0
+            ]
+            if not league_preds:
+                continue
+
+            lines = [f"{prefix}🏆 *PRÉVIA — {league}*\n"]
+            for p in league_preds:
+                home = p["home_team"]
+                away = p["away_team"]
+                result = p["result"]
+                corners = p.get("corners")
+
+                score = result.get("most_likely_score", "?")
+                ph = f"{result['prob_home']:.0%}" if result.get("prob_home") else "?"
+                pd = f"{result['prob_draw']:.0%}" if result.get("prob_draw") else "?"
+                pa = f"{result['prob_away']:.0%}" if result.get("prob_away") else "?"
+
+                line = f"\n📋 *{home} x {away}*"
+                line += f"\n📊 {score} (Casa {ph} | Emp {pd} | Fora {pa})"
+
+                if corners and corners.get("predicted_total_corners"):
+                    tc = corners["predicted_total_corners"]
+                    line += f"\n🥅 Escanteios: {tc} totais"
+
+                lines.append(line)
+
+            msg = "\n".join(lines)
+            try:
+                _send_both(msg)
+                logger.info(f"[PreMatch] Enviado: {league} ({len(league_preds)} jogos)")
+            except Exception as e:
+                logger.warning(f"[PreMatch] Erro ao enviar {league}: {e}")
+
     def _send_confidence_tips(self, tips: list[dict], prefix: str = ""):
-        """Envia palpites de alta confiança via WhatsApp um por um."""
+        """Envia palpites de alta confiança agrupados por jogo."""
         if not tips:
             return
 
@@ -463,25 +547,56 @@ class FootballScheduler:
             "cartões": "🟨",
             "esc. casa": "🏠",
             "esc. fora": "✈️",
+            "gols": "⚽",
+            "BTTS": "🤝",
+            "Double Chance": "🛡️",
         }
 
+        # Agrupar por jogo (mantendo ordenação por confiança)
+        from collections import OrderedDict
+
+        grouped: dict[str, dict] = OrderedDict()
         for tip in tips:
-            emoji = market_emoji.get(tip["market"], "📊")
-            direction_label = "Under" if tip["direction"] == "under" else "Over"
-            suffix = "" if tip["market"] in ("esc. casa", "esc. fora") else " totais"
-            msg = (
-                f"{emoji} *PALPITE {tip['market'].upper()}*\n"
-                f"📋 {tip['match']} ({tip['league']})\n"
-                f"🎯 {direction_label} {tip['line']}\n"
-                f"📈 Confiança: {tip['confidence']:.0f}%\n"
-                f"📊 Previsto: {tip['predicted']}{suffix}\n\n"
-                f"#{tip['market']} #{direction_label}{tip['line']}"
-            )
+            key = tip["match"]
+            if key not in grouped:
+                grouped[key] = {"league": tip["league"], "tips": []}
+            grouped[key]["tips"].append(tip)
+
+        for match, data in grouped.items():
+            league = data["league"]
+            tip_list = data["tips"]
+            header = f"{prefix}📋 *{match}* ({league})"
+            lines = []
+
+            for tip in tip_list:
+                emoji = market_emoji.get(tip["market"], "📊")
+                market = tip["market"]
+
+                if market in ("BTTS", "Double Chance"):
+                    direction_label = {"sim": "Sim", "nao": "Não",
+                                       "casa-empate": "Casa ou Empate",
+                                       "fora-empate": "Fora ou Empate"}.get(
+                        tip["direction"], tip["direction"]
+                    )
+                    line_str = ""
+                else:
+                    direction_label = "Under" if tip["direction"] == "under" else "Over"
+                    line_str = f" {tip['line']}"
+
+                lines.append(
+                    f"{emoji} {market}: {direction_label}{line_str} "
+                    f"({tip['confidence']:.0f}%)"
+                )
+
+            msg = header + "\n" + "\n".join(lines)
             try:
                 ok = send_text(msg)
-                logger.debug(f"[Tips] {'Enviado' if ok else 'Falha'}: {tip['match']} - {direction_label} {tip['line']}")
+                logger.debug(
+                    f"[Tips] {'Enviado' if ok else 'Falha'}: {match} "
+                    f"({len(tip_list)} palpites)"
+                )
             except Exception as e:
-                logger.warning(f"[Tips] Erro: {e}")
+                logger.warning(f"[Tips] Erro ao enviar {match}: {e}")
 
     def _find_value_bets(self, predictions: list[dict],
                           fixtures: list[dict]) -> list:

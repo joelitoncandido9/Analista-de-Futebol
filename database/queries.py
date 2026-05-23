@@ -196,6 +196,8 @@ def evaluate_predictions():
     """Compara previsões com resultados reais e retorna estatísticas de acerto."""
     conn = get_conn()
     cur = conn.cursor()
+
+    # Statistical markets (corners, shots, etc.)
     cur.execute("""
         UPDATE predictions
         SET actual_value = (
@@ -239,7 +241,64 @@ def evaluate_predictions():
         AND predictions.actual_value IS NULL
         AND matches.home_corners IS NOT NULL
     """)
-    updated = cur.rowcount
+    updated_stats = cur.rowcount
+
+    # Total Goals (O/U via Dixon-Coles)
+    cur.execute("""
+        UPDATE predictions
+        SET actual_value = (home_goals + away_goals),
+            was_correct = CASE
+                WHEN direction = 'over' AND (home_goals + away_goals) > line THEN 1
+                WHEN direction = 'under' AND (home_goals + away_goals) < line THEN 1
+                ELSE 0
+            END
+        FROM matches
+        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        AND predictions.actual_value IS NULL
+        AND predictions.market = 'total_goals'
+        AND matches.home_goals IS NOT NULL
+    """)
+    updated_goals = cur.rowcount
+
+    # BTTS (Both Teams To Score)
+    cur.execute("""
+        UPDATE predictions
+        SET actual_value = CASE WHEN home_goals > 0 AND away_goals > 0 THEN 1 ELSE 0 END,
+            was_correct = CASE
+                WHEN direction = 'sim' AND home_goals > 0 AND away_goals > 0 THEN 1
+                WHEN direction = 'nao' AND (home_goals = 0 OR away_goals = 0) THEN 1
+                ELSE 0
+            END
+        FROM matches
+        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        AND predictions.actual_value IS NULL
+        AND predictions.market = 'btts'
+        AND matches.home_goals IS NOT NULL
+    """)
+    updated_btts = cur.rowcount
+
+    # Double Chance
+    cur.execute("""
+        UPDATE predictions
+        SET actual_value = CASE
+                WHEN home_goals > away_goals THEN 1
+                WHEN home_goals = away_goals THEN 0
+                ELSE -1
+            END,
+            was_correct = CASE
+                WHEN direction = 'casa-empate' AND home_goals >= away_goals THEN 1
+                WHEN direction = 'fora-empate' AND away_goals >= home_goals THEN 1
+                ELSE 0
+            END
+        FROM matches
+        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        AND predictions.actual_value IS NULL
+        AND predictions.market = 'double_chance'
+        AND matches.home_goals IS NOT NULL
+    """)
+    updated_dc = cur.rowcount
+
+    updated = updated_stats + updated_goals + updated_btts + updated_dc
 
     cur.execute("""
         SELECT market, direction, line,
