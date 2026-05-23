@@ -23,6 +23,279 @@ def _conn() -> sqlite3.Connection:
     return conn
 
 
+# Mapeamento de nomes de times: API-Football → football-data.co.uk
+# Usado para resolver nomes na hora da predicao
+TEAM_NAME_MAP = {
+    # === Premier League ===
+    "Manchester United": "Man United",
+    "Manchester City": "Man City",
+    "Newcastle United": "Newcastle",
+    "Tottenham Hotspur": "Tottenham",
+    "Wolverhampton Wanderers": "Wolves",
+    "Nottingham Forest": "Nott'm Forest",
+    "Leicester City": "Leicester",
+    "West Ham United": "West Ham",
+    "Brighton & Hove Albion": "Brighton",
+    "Aston Villa": "Aston Villa",
+    "Ipswich Town": "Ipswich",
+    "Norwich City": "Norwich",
+    "Leeds United": "Leeds",
+    "Huddersfield Town": "Huddersfield",
+    "Stoke City": "Stoke",
+    "Swansea City": "Swansea",
+    "West Bromwich Albion": "West Brom",
+    "Derby County": "Derby",
+    "Birmingham City": "Birmingham",
+    "Blackburn Rovers": "Blackburn",
+    "Queens Park Rangers": "QPR",
+    # === Championship ===
+    "Hull City": "Hull",
+    "Sheffield Wednesday": "Sheffield Weds",
+    "Sheffield Wed": "Sheffield Weds",
+    "Nott'm Forest": "Nott'm Forest",
+    "Cardiff City": "Cardiff",
+    "Bolton Wanderers": "Bolton",
+    "Rotherham United": "Rotherham",
+    "Milton Keynes Dons": "Milton Keynes Dons",
+    # === La Liga ===
+    "Rayo Vallecano": "Vallecano",
+    "Real Betis": "Betis",
+    "Celta Vigo": "Celta",
+    "Espanyol": "Espanol",
+    "Real Sociedad": "Sociedad",
+    "Athletic Club": "Ath Bilbao",
+    "Atletico Madrid": "Ath Madrid",
+    "Real Valladolid": "Valladolid",
+    "Deportivo Alaves": "Alaves",
+    "Alaves": "Alaves",
+    "Villarreal": "Villarreal",
+    # === Bundesliga ===
+    "Eintracht Frankfurt": "Ein Frankfurt",
+    "Borussia Mönchengladbach": "M'gladbach",
+    "Borussia Monchengladbach": "M'gladbach",
+    "1. FC Köln": "FC Koln",
+    "FC Köln": "FC Koln",
+    "1. FC Koln": "FC Koln",
+    "FC Koln": "FC Koln",
+    "VfB Stuttgart": "Stuttgart",
+    "VfL Wolfsburg": "Wolfsburg",
+    "VfL Bochum": "Bochum",
+    "1. FC Heidenheim": "Heidenheim",
+    "FC Heidenheim": "Heidenheim",
+    "1. FC Union Berlin": "Union Berlin",
+    "FC Union Berlin": "Union Berlin",
+    "1. FC Kaiserslautern": "Kaiserslautern",
+    "SC Freiburg": "Freiburg",
+    "SV Darmstadt 98": "Darmstadt",
+    "FC Augsburg": "Augsburg",
+    "1. FSV Mainz 05": "Mainz",
+    "FSV Mainz 05": "Mainz",
+    "Mainz 05": "Mainz",
+    "Werder Bremen": "Werder Bremen",
+    "TSG 1899 Hoffenheim": "Hoffenheim",
+    "RB Leipzig": "RB Leipzig",
+    "RasenBallsport Leipzig": "RB Leipzig",
+    "FC Bayern Munich": "Bayern Munich",
+    "Bayern Munich": "Bayern Munich",
+    "Borussia Dortmund": "Borussia Dortmund",
+    "Bayer 04 Leverkusen": "Bayer Leverkusen",
+    "Bayer Leverkusen": "Bayer Leverkusen",
+    "FC St. Pauli": "St Pauli",
+    "St. Pauli": "St Pauli",
+    # === 2. Bundesliga ===
+    "Hannover 96": "Hannover",
+    "Hertha BSC": "Hertha",
+    "1. FC Magdeburg": "Magdeburg",
+    "SC Paderborn 07": "Paderborn",
+    "SV Wehen Wiesbaden": "Wehen",
+    "SpVgg Greuther Furth": "Greuther Furth",
+    "Karlsruher SC": "Karlsruhe",
+    "FC Hansa Rostock": "Hansa Rostock",
+    "TSV 1860 Munich": "Munich 1860",
+    "Eintracht Braunschweig": "Braunschweig",
+    "SSV Ulm 1846": "Ulm",
+    "VfL Osnabruck": "Osnabruck",
+    "VfL Osnabrück": "Osnabruck",
+    # === Serie A ===
+    "AC Milan": "Milan",
+    "FC Internazionale": "Inter",
+    "Hellas Verona": "Verona",
+    "US Lecce": "Lecce",
+    "FC Empoli": "Empoli",
+    "US Salernitana": "Salernitana",
+    "AC Monza": "Monza",
+    "Frosinone Calcio": "Frosinone",
+    "Parma Calcio 1913": "Parma",
+    "ACF Fiorentina": "Fiorentina",
+    "FC Crotone": "Crotone",
+    "Benevento Calcio": "Benevento",
+    "Spezia Calcio": "Spezia",
+    "S.P.A.L.": "Spal",
+    "Spal": "Spal",
+    # === Ligue 1 ===
+    "Paris Saint Germain": "Paris SG",
+    "Paris Saint-Germain": "Paris SG",
+    "Olympique Marseille": "Marseille",
+    "Olympique Lyonnais": "Lyon",
+    "AS Saint-Etienne": "Saint-Etienne",
+    "Saint-Etienne": "Saint-Etienne",
+    "St Etienne": "Saint-Etienne",
+    "Stade Brestois": "Brest",
+    "Stade Rennais": "Rennes",
+    "Montpellier Herault": "Montpellier",
+    "Montpellier HSC": "Montpellier",
+    "FC Nantes": "Nantes",
+    "FC Lorient": "Lorient",
+    "RC Lens": "Lens",
+    "RC Strasbourg": "Strasbourg",
+    "FC Metz": "Metz",
+    "FC Toulouse": "Toulouse",
+    "Le Havre AC": "Le Havre",
+    "AC Ajaccio": "Ajaccio",
+    "Clermont Foot": "Clermont",
+    "Stade de Reims": "Reims",
+    "Angers SCO": "Angers",
+    "OGC Nice": "Nice",
+    "ES Troyes AC": "Troyes",
+    # === Eredivisie ===
+    "Sparta Rotterdam": "Sparta",
+    "FC Twente": "Twente",
+    "PEC Zwolle": "Zwolle",
+    "FC Volendam": "Volendam",
+    "SC Heerenveen": "Heerenveen",
+    "Fortuna Sittard": "For Sittard",
+    "RKC Waalwijk": "Waalwijk",
+    "NEC Nijmegen": "Nijmegen",
+    "Almere City FC": "Almere City",
+    "FC Groningen": "Groningen",
+    "FC Utrecht": "Utrecht",
+    "FC Emmen": "Emmen",
+    "Go Ahead Eagles": "Go Ahead Eagles",
+    "AZ Alkmaar": "AZ Alkmaar",
+    "PSV Eindhoven": "PSV Eindhoven",
+    # === Primeira Liga ===
+    "Sporting CP": "Sp Lisbon",
+    "Sporting Lisbon": "Sp Lisbon",
+    "SL Benfica": "Benfica",
+    "FC Porto": "Porto",
+    "SC Braga": "Sp Braga",
+    "Vitoria SC": "Guimaraes",
+    "Vitoria Guimaraes": "Guimaraes",
+    "GD Estoril Praia": "Estoril",
+    "Casa Pia AC": "Casa Pia",
+    "FC Arouca": "Arouca",
+    "FC Famalicao": "Famalicao",
+    "Portimonense SC": "Portimonense",
+    "Boavista FC": "Boavista",
+    "CS Maritimo": "Maritimo",
+    "Rio Ave FC": "Rio Ave",
+    "CD Nacional": "Nacional",
+    "FC Vizela": "Vizela",
+    "Gil Vicente FC": "Gil Vicente",
+    "CF Estrela": "Estrela",
+    "Estrela Amadora": "Est Amadora",
+    # === Brasileirao ===
+    "Athletico-PR": "Athletico-PR",
+    "Atletico-MG": "Atletico-MG",
+    "Atletico GO": "Atletico GO",
+    "Fortaleza EC": "Fortaleza",
+    "Vasco da Gama": "Vasco",
+    "Sao Paulo": "Sao Paulo",
+    "Club de Regatas Vasco da Gama": "Vasco",
+    "Botafogo de Futebol e Regatas": "Botafogo",
+    "Botafogo RJ": "Botafogo RJ",
+    "Red Bull Bragantino": "Bragantino",
+    "Sport Club Recife": "Sport Recife",
+    "Chapecoense": "Chapecoense-SC",
+    "Criciuma": "Criciuma",
+    "Cuiaba": "Cuiaba",
+    "Juventude": "Juventude",
+}
+
+# Also add reverse mappings from merge.py for any we might have missed
+# (prefix-based normalization similar to merge._normalize)
+def _normalize_team_name(name: str) -> str:
+    """Normaliza nome de time para lookup no banco."""
+    name_clean = name.lower().strip()
+    # Prefix-based mappings (from merge.py)
+    prefix_map = {
+        "athletic club": "ath bilbao",
+        "atletico madrid": "ath madrid",
+        "celta vigo": "celta",
+        "rayo vallecano": "vallecano",
+        "real betis": "betis",
+        "real sociedad": "sociedad",
+        "real valladolid": "valladolid",
+        "eintracht frankfurt": "ein frankfurt",
+        "borussia mönchengladbach": "m'gladbach",
+        "borussia monchengladbach": "m'gladbach",
+        "bayer leverkusen": "leverkusen",
+        "borussia dortmund": "dortmund",
+        "rasenballsport leipzig": "rb leipzig",
+        "mainz 05": "mainz",
+        "st. pauli": "st pauli",
+        "vfb stuttgart": "stuttgart",
+        "paris saint germain": "paris sg",
+        "olympique lyonnais": "lyon",
+        "olympique marseille": "marseille",
+        "le havre ac": "le havre",
+        "manchester united": "man united",
+        "manchester city": "man city",
+        "wolverhampton": "wolves",
+        "nottingham forest": "nott'm forest",
+        "newcastle united": "newcastle",
+        "tottenham hotspur": "tottenham",
+        "brighton and hove albion": "brighton",
+        "west ham united": "west ham",
+        "leicester city": "leicester",
+        "hull city": "hull",
+        "sheffield wednesday": "sheffield weds",
+        "derby county": "derby",
+        "birmingham city": "birmingham",
+        "bolton wanderers": "bolton",
+        "blackburn rovers": "blackburn",
+        "queens park rangers": "qpr",
+        "norwich city": "norwich",
+        "leeds united": "leeds",
+        "huddersfield town": "huddersfield",
+        "swansea city": "swansea",
+        "stoke city": "stoke",
+        "west bromwich": "west brom",
+        "cardiff city": "cardiff",
+    }
+    for prefix, mapped in prefix_map.items():
+        if prefix in name_clean:
+            return mapped
+    return name
+
+
+def resolve_team_name(name: str, df: pd.DataFrame) -> str:
+    """Resolve nome do time para match no dataset.
+
+    Tenta o nome original primeiro. Se nao encontrar partidas,
+    tenta o mapeamento direto (TEAM_NAME_MAP) e depois
+    a normalizacao baseada em prefixos.
+    """
+    # Check if name exists as-is
+    if name in df["home_team"].values or name in df["away_team"].values:
+        return name
+    # Try direct map
+    if name in TEAM_NAME_MAP:
+        mapped = TEAM_NAME_MAP[name]
+        if mapped in df["home_team"].values or mapped in df["away_team"].values:
+            return mapped
+    # Try normalization
+    normalized = _normalize_team_name(name)
+    if normalized != name.lower():
+        for candidate in df["home_team"].unique():
+            if candidate.lower() == normalized:
+                return candidate
+        for candidate in df["away_team"].unique():
+            if candidate.lower() == normalized:
+                return candidate
+    return name
+
+
 def load_matches(league: str | None = None,
                  min_date: str | None = None,
                  max_date: str | None = None,
@@ -93,8 +366,11 @@ def build_team_features(team: str, match_date: pd.Timestamp,
     if windows is None:
         windows = [5, 10]
 
+    # Resolve nome do time (API → DB) se necessario
+    resolved = resolve_team_name(team, df)
+
     team_df = df[
-        ((df["home_team"] == team) | (df["away_team"] == team))
+        ((df["home_team"] == resolved) | (df["away_team"] == resolved))
         & (df["match_date"] < match_date)
     ].copy()
 
