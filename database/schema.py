@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS predictions (
 
 CREATE INDEX IF NOT EXISTS idx_predictions_match ON predictions(fixture_id);
 CREATE INDEX IF NOT EXISTS idx_predictions_date ON predictions(match_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_predictions_unique ON predictions(fixture_id, market, direction, line);
 """
 
 
