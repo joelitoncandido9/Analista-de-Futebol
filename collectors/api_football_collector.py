@@ -172,29 +172,28 @@ class APIFootballCollector(BaseCollector):
 
         logger.info(f"  {len(fixtures)} jogos encontrados")
 
-        # 2. Para cada jogo encerrado, buscar estatisticas
+        # 2. Para cada jogo encerrado, buscar estatisticas e salvar resultados
         from database.queries import save_matches
 
         matches = []
         for fx in fixtures:
             if fx["status"] in ("FT", "AET", "PEN"):
+                match = {
+                    "match_id": f"api_{fx['fixture_id']}",
+                    "league": fx["league"],
+                    "season": "2025/2026",
+                    "match_date": fx["match_date"],
+                    "home_team": fx["home_team"],
+                    "away_team": fx["away_team"],
+                    "home_goals": fx["home_goals"],
+                    "away_goals": fx["away_goals"],
+                    "status": "finished",
+                    "source": "api_football",
+                }
+
+                # Buscar estatisticas detalhadas (opcional — gols ja sao salvos mesmo sem stats)
                 stats = self.get_fixture_stats(fx["fixture_id"])
                 if stats:
-                    # Mapear estatisticas para nosso formato
-                    match = {
-                        "match_id": f"api_{fx['fixture_id']}",
-                        "league": fx["league"],
-                        "season": "2025/2026",
-                        "match_date": fx["match_date"],
-                        "home_team": fx["home_team"],
-                        "away_team": fx["away_team"],
-                        "home_goals": fx["home_goals"],
-                        "away_goals": fx["away_goals"],
-                        "status": "finished",
-                        "source": "api_football",
-                    }
-
-                    # Extrair estatisticas do formato API
                     for team_key in ["home_team", "away_team"]:
                         team = fx[team_key]
                         prefix = team_key.split("_")[0]
@@ -206,9 +205,10 @@ class APIFootballCollector(BaseCollector):
                         match[f"{prefix}_red"] = _find_stat(stats, team, "Red Cards")
                         match[f"{prefix}_fouls"] = _find_stat(stats, team, "Fouls")
                         match[f"{prefix}_corners"] = _find_stat(stats, team, "Corner Kicks")
+                else:
+                    logger.debug(f"  Sem stats detalhadas para {fx['home_team']} x {fx['away_team']}, salvando apenas resultado")
 
-                    matches.append(match)
-
+                matches.append(match)
                 time.sleep(1)
 
         if matches:
