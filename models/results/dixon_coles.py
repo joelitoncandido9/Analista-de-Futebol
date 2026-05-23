@@ -69,6 +69,10 @@ TEAM_NAME_MAP = {
     "Venezia FC": "Venezia",
     "Como": "Como 1907",
     "Como 1907": "Como 1907",
+    # Championship
+    "Hull City": "Hull",
+    "Sheffield Wednesday": "Sheffield Weds",
+    "Sheffield Wed": "Sheffield Weds",
     # Premier League
     "Manchester City": "Man City",
     "Manchester United": "Man United",
