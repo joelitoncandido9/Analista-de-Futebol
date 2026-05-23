@@ -237,7 +237,7 @@ def evaluate_predictions():
             END
         )
         FROM matches
-        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        WHERE 'api_' || predictions.fixture_id = matches.match_id
         AND predictions.actual_value IS NULL
         AND matches.home_corners IS NOT NULL
     """)
@@ -253,7 +253,7 @@ def evaluate_predictions():
                 ELSE 0
             END
         FROM matches
-        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        WHERE 'api_' || predictions.fixture_id = matches.match_id
         AND predictions.actual_value IS NULL
         AND predictions.market = 'total_goals'
         AND matches.home_goals IS NOT NULL
@@ -270,7 +270,7 @@ def evaluate_predictions():
                 ELSE 0
             END
         FROM matches
-        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        WHERE 'api_' || predictions.fixture_id = matches.match_id
         AND predictions.actual_value IS NULL
         AND predictions.market = 'btts'
         AND matches.home_goals IS NOT NULL
@@ -291,7 +291,7 @@ def evaluate_predictions():
                 ELSE 0
             END
         FROM matches
-        WHERE predictions.fixture_id = 'api_' || matches.match_id
+        WHERE 'api_' || predictions.fixture_id = matches.match_id
         AND predictions.actual_value IS NULL
         AND predictions.market = 'double_chance'
         AND matches.home_goals IS NOT NULL
