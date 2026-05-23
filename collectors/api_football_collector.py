@@ -20,9 +20,12 @@ class APIFootballCollector(BaseCollector):
     def __init__(self):
         super().__init__("API-Football", rate_per_min=10)
         self._key_index = 0
+        self._valid_key: str | None = None
 
     def _next_key(self) -> str:
         """Rotaciona entre as keys disponiveis."""
+        if self._valid_key:
+            return self._valid_key
         key = API_FOOTBALL_KEYS[self._key_index % len(API_FOOTBALL_KEYS)]
         self._key_index += 1
         return key
@@ -31,8 +34,12 @@ class APIFootballCollector(BaseCollector):
         """Chamada a API-Football com rotacao de keys e retry."""
         url = f"{API_FOOTBALL_URL}{endpoint}"
 
-        for attempt in range(3):
-            key = self._next_key()
+        # Se ja temos uma key valida, tentar ela primeiro
+        keys_to_try = list(API_FOOTBALL_KEYS)
+        if self._valid_key:
+            keys_to_try.insert(0, self._valid_key)
+
+        for key in keys_to_try:
             headers = {
                 "x-apisports-key": key,
                 "Accept": "application/json",
@@ -46,18 +53,23 @@ class APIFootballCollector(BaseCollector):
                     continue
                 if resp.status_code != 200:
                     logger.warning(f"  HTTP {resp.status_code} em {endpoint}")
-                    time.sleep(2 ** attempt)
                     continue
 
                 data = resp.json()
                 if data.get("errors"):
-                    logger.warning(f"  Erro API: {data['errors']}")
-                    return None
+                    logger.warning(f"  Key error: {data['errors']}")
+                    if key == self._valid_key:
+                        self._valid_key = None  # invalidar cache
+                    continue
+
+                # Cachear key valida
+                if not self._valid_key:
+                    self._valid_key = key
+                    logger.info(f"  Key cacheada: {key[:12]}...")
                 return data
 
             except Exception as e:
                 logger.warning(f"  Erro: {e}")
-                time.sleep(2 ** attempt)
 
         return None
 
