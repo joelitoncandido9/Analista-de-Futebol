@@ -87,7 +87,7 @@ class ValueBetDetector:
 
             model_prob = min(model_prob, 0.99)
             fair_odd = 1.0 / model_prob
-            edge = (fair_odd - market_odd) / market_odd
+            edge = (market_odd - fair_odd) / fair_odd
 
             if edge > self.min_edge:
                 # Kelly stake
@@ -142,7 +142,7 @@ class ValueBetDetector:
 
             model_prob = min(model_prob, 0.99)
             fair_odd = 1.0 / model_prob
-            edge = (fair_odd - market_odd) / market_odd
+            edge = (market_odd - fair_odd) / fair_odd
 
             if edge > self.min_edge:
                 kelly = ((model_prob * (market_odd - 1)) - (1 - model_prob)) / (market_odd - 1)
@@ -174,10 +174,11 @@ class ValueBetDetector:
                            odds_home: float, odds_draw: float, odds_away: float) -> list[ValueBet]:
         """Avalia value bets em 1X2."""
         found: list[ValueBet] = []
+        result_data = model_pred.get("result", {})
         results = [
-            ("Home", model_pred.get("prob_home", 0), odds_home),
-            ("Draw", model_pred.get("prob_draw", 0), odds_draw),
-            ("Away", model_pred.get("prob_away", 0), odds_away),
+            ("Home", model_pred.get("prob_home") or result_data.get("prob_home", 0), odds_home),
+            ("Draw", model_pred.get("prob_draw") or result_data.get("prob_draw", 0), odds_draw),
+            ("Away", model_pred.get("prob_away") or result_data.get("prob_away", 0), odds_away),
         ]
 
         for selection, prob, odd in results:
@@ -186,7 +187,7 @@ class ValueBetDetector:
 
             prob = min(prob, 0.99)
             fair_odd = 1.0 / prob
-            edge = (fair_odd - odd) / odd
+            edge = (odd - fair_odd) / fair_odd
             ev = prob * odd - 1.0
 
             if edge > self.min_edge and ev > self.min_ev:
@@ -208,6 +209,159 @@ class ValueBetDetector:
                     expected_value=round(ev, 4),
                     stake_pct=round(kelly * 100, 2),
                 )
+                found.append(bet)
+
+        return found
+
+    def _check_prob_vs_odds(self, model_prob: float, market_odd: float,
+                             fixture_context: dict, market: str,
+                             selection: str) -> ValueBet | None:
+        """Core logic: calcula edge, EV e Kelly para uma probabilidade vs odd."""
+        if model_prob <= 0.0 or not isinstance(market_odd, (int, float)) or market_odd <= 1.0:
+            return None
+
+        model_prob = min(model_prob, 0.99)
+        fair_odd = 1.0 / model_prob
+        edge = (market_odd - fair_odd) / fair_odd
+
+        if edge > self.min_edge:
+            kelly = ((model_prob * (market_odd - 1)) - (1 - model_prob)) / (market_odd - 1)
+            kelly = max(0.0, min(kelly * self.kelly_fraction, 0.25))
+            ev = model_prob * market_odd - 1.0
+
+            if ev > self.min_ev:
+                return ValueBet(
+                    market=market,
+                    selection=selection,
+                    fixture_id=fixture_context.get("fixture_id", ""),
+                    home_team=fixture_context.get("home_team", ""),
+                    away_team=fixture_context.get("away_team", ""),
+                    league=fixture_context.get("league", ""),
+                    match_date=fixture_context.get("match_date", ""),
+                    model_prob=round(model_prob, 4),
+                    market_odds=round(market_odd, 2),
+                    fair_odds=round(fair_odd, 2),
+                    edge=round(edge, 4),
+                    expected_value=round(ev, 4),
+                    stake_pct=round(kelly * 100, 2),
+                )
+        return None
+
+    def check_btts(self, model_pred: dict,
+                   market_odds: dict | None = None) -> list[ValueBet]:
+        """Avalia value bets em Both Teams To Score."""
+        found: list[ValueBet] = []
+        probs = model_pred.get("probabilities", {})
+        if not market_odds:
+            return found
+
+        mapping = {"sim_0": "Yes", "nao_0": "No"}
+        for model_key, market_key in mapping.items():
+            model_prob = probs.get(model_key, 0.0)
+            market_odd = market_odds.get(market_key)
+            bet = self._check_prob_vs_odds(
+                model_prob, market_odd, model_pred, "btts",
+                "Sim" if model_key == "sim_0" else "Não",
+            )
+            if bet:
+                found.append(bet)
+
+        return found
+
+    def check_double_chance(self, model_pred: dict,
+                            market_odds: dict | None = None) -> list[ValueBet]:
+        """Avalia value bets em Dupla Chance."""
+        found: list[ValueBet] = []
+        probs = model_pred.get("probabilities", {})
+        if not market_odds:
+            return found
+
+        mapping = {"casa-empate_0": "home-or-draw", "fora-empate_0": "away-or-draw"}
+        labels = {"casa-empate_0": "Casa ou Empate", "fora-empate_0": "Fora ou Empate"}
+        for model_key, market_key in mapping.items():
+            model_prob = probs.get(model_key, 0.0)
+            market_odd = market_odds.get(market_key)
+            bet = self._check_prob_vs_odds(
+                model_prob, market_odd, model_pred, "double_chance",
+                labels.get(model_key, model_key),
+            )
+            if bet:
+                found.append(bet)
+
+        return found
+
+    def check_over_under_goals(self, model_pred: dict,
+                                market_odds: dict | None = None) -> list[ValueBet]:
+        """Avalia value bets em Over/Under Gols (mercado totals)."""
+        found: list[ValueBet] = []
+        if not market_odds:
+            return found
+
+        probs = model_pred.get("probabilities")
+        if not probs:
+            goals_data = model_pred.get("goals")
+            if isinstance(goals_data, dict):
+                probs = goals_data.get("probabilities")
+        if not probs:
+            return found
+
+        for line_key, market_odd in market_odds.items():
+            if not isinstance(market_odd, (int, float)) or market_odd <= 1.0:
+                continue
+
+            parts = line_key.split("_")
+            if len(parts) < 2:
+                continue
+            direction = parts[0]
+            line_value = parts[1] if len(parts) > 1 else ""
+
+            model_prob = probs.get(f"{direction}_{line_value}", 0.0)
+            if model_prob <= 0.0:
+                continue
+
+            bet = self._check_prob_vs_odds(
+                model_prob, market_odd, model_pred, "total_goals",
+                f"{direction.title()} {line_value}",
+            )
+            if bet:
+                pred_goals = model_pred.get("predicted_total_goals")
+                if pred_goals is None:
+                    gd = model_pred.get("goals")
+                    if isinstance(gd, dict):
+                        pred_goals = gd.get("predicted_total_goals", 0)
+                bet.model_prediction = pred_goals or 0
+                found.append(bet)
+
+        return found
+
+    def check_cards(self, model_pred: dict,
+                    market_odds: dict | None = None) -> list[ValueBet]:
+        """Avalia value bets em cartoes amarelos (alternate_totals_cards)."""
+        found: list[ValueBet] = []
+        probs = model_pred.get("probabilities", {})
+        if not market_odds:
+            return found
+
+        for line_key, market_odd in market_odds.items():
+            if not isinstance(market_odd, (int, float)) or market_odd <= 1.0:
+                continue
+
+            parts = line_key.split("_")
+            if len(parts) < 2:
+                continue
+            direction = parts[0]
+            line_value = parts[1] if len(parts) > 1 else ""
+
+            model_prob = probs.get(f"{direction}_{line_value}", 0.0)
+            if model_prob <= 0.0:
+                continue
+
+            bet = self._check_prob_vs_odds(
+                model_prob, market_odd, model_pred, "total_yellow",
+                f"{direction.title()} {line_value}",
+            )
+            if bet:
+                bet.model_prediction = model_pred.get("predicted_total_yellow", 0)
                 found.append(bet)
 
         return found

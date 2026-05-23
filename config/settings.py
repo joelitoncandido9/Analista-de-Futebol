@@ -18,8 +18,18 @@ API_FOOTBALL_KEYS = [k for k in API_FOOTBALL_KEYS if k]
 API_FOOTBALL_URL = "https://v3.football.api-sports.io"
 API_FOOTBALL_RATE = 10  # req/min por key
 
-# The-Odds-API
-THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")
+# The-Odds-API (6-7 keys rotacionadas)
+THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")  # keep for backward compat
+THE_ODDS_API_KEYS = [k for k in [
+    os.getenv("THE_ODDS_API_KEY"),
+    os.getenv("ODDS_API_KEY"),
+    os.getenv("ODDS_KEY1"),
+    os.getenv("ODDS_KEY2"),
+    os.getenv("ODDS_KEY3"),
+    os.getenv("ODDS_KEY4"),
+    os.getenv("ODDS_KEY5"),
+] if k]
+THE_ODDS_API_URL = "https://api.the-odds-api.com/v4"
 
 # OpenRouter (acesso a Claude e outros modelos)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")

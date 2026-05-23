@@ -1,5 +1,6 @@
 """Queries reutilizaveis para o banco."""
 from database.schema import get_conn
+from loguru import logger
 
 
 def get_matches_by_league(league: str, season: str | None = None, limit: int = 100):
@@ -314,3 +315,50 @@ def evaluate_predictions():
     conn.commit()
     conn.close()
     return {"evaluated": updated, "stats": stats}
+
+
+def save_odds(odds_rows: list[dict]) -> int:
+    """Salva odds de mercado no banco."""
+    conn = get_conn()
+    cur = conn.cursor()
+    saved = 0
+    for row in odds_rows:
+        try:
+            cur.execute(
+                """INSERT INTO odds
+                   (match_id, bookmaker, market, selection, odd_value, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    row["match_id"],
+                    row["bookmaker"],
+                    row["market"],
+                    row["selection"],
+                    row["odd_value"],
+                    row.get("timestamp", ""),
+                ),
+            )
+            saved += 1
+        except Exception as e:
+            logger.warning(f"  Erro salvando odd: {e}")
+    conn.commit()
+    conn.close()
+    return saved
+
+
+def get_match_odds(match_id: str, market: str | None = None) -> list[dict]:
+    """Retorna odds de uma partida."""
+    conn = get_conn()
+    cur = conn.cursor()
+    if market:
+        cur.execute(
+            "SELECT * FROM odds WHERE match_id = ? AND market = ? ORDER BY bookmaker",
+            (match_id, market),
+        )
+    else:
+        cur.execute(
+            "SELECT * FROM odds WHERE match_id = ? ORDER BY bookmaker",
+            (match_id,),
+        )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows

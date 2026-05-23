@@ -603,19 +603,82 @@ class FootballScheduler:
 
     def _find_value_bets(self, predictions: list[dict],
                           fixtures: list[dict]) -> list:
-        """Encontra value bets nas previsoes."""
+        """Encontra value bets comparando previsoes com odds reais da The-Odds-API.
+
+        Para cada liga, busca odds via TheOddsAPICollector, casa por nome do time,
+        e executa o ValueBetDetector para mercados disponiveis (h2h, totals).
+        """
         from models.value_bet import ValueBetDetector
+        from collectors.the_odds_api_collector import TheOddsAPICollector
+        from config.leagues import LEAGUES_BY_NAME
+        from database.merge import match_teams
 
         detector = ValueBetDetector()
+        collector = TheOddsAPICollector()
         all_bets = []
 
+        # Agrupar predictions por liga
+        by_league: dict[str, list[dict]] = {}
         for pred in predictions:
-            corners = pred.get("corners")
-            if corners and corners.get("probabilities"):
-                # Sem odds de mercado por enquanto — usa odds hipoteticas
-                # TODO: integrar com the-odds-api
-                pass
+            league_name = pred["league"]
+            by_league.setdefault(league_name, []).append(pred)
 
+        for league_name, league_preds in by_league.items():
+            league_config = LEAGUES_BY_NAME.get(league_name)
+            if not league_config:
+                logger.warning(f"[ValueBet] Liga sem config: {league_name}")
+                continue
+
+            # Buscar odds reais para a liga
+            odds_data = collector.get_odds_for_sport(league_config.sport_key)
+            if not odds_data:
+                logger.info(f"[ValueBet] Sem odds disponiveis para {league_name}")
+                continue
+
+            logger.info(f"[ValueBet] {league_name}: {len(odds_data)} fixtures com odds")
+
+            for pred in league_preds:
+                home = pred["home_team"]
+                away = pred["away_team"]
+
+                # Encontrar fixture correspondente nas odds por nome do time
+                matched_fx = None
+                for fx in odds_data:
+                    api_home = fx.get("home_team", "")
+                    api_away = fx.get("away_team", "")
+                    if match_teams(api_home, home) and match_teams(api_away, away):
+                        matched_fx = fx
+                        break
+
+                if not matched_fx:
+                    continue
+
+                # Extrair odds da fixture
+                market_odds = collector._extract_market_odds(matched_fx)
+
+                # Match Result (h2h) — usar nomes da API como chaves
+                h2h = market_odds.get("h2h", {})
+                if h2h:
+                    api_home_team = matched_fx.get("home_team", "")
+                    api_away_team = matched_fx.get("away_team", "")
+                    odds_home = h2h.get(api_home_team, 0)
+                    odds_draw = h2h.get("Draw", 0)
+                    odds_away = h2h.get(api_away_team, 0)
+
+                    if odds_home > 0 and odds_away > 0:
+                        bets = detector.check_match_result(
+                            pred, odds_home, odds_draw, odds_away
+                        )
+                        all_bets.extend(bets)
+
+                # Over/Under Goals (totals)
+                totals = market_odds.get("totals", {})
+                if totals:
+                    bets = detector.check_over_under_goals(pred, totals)
+                    all_bets.extend(bets)
+
+        all_bets.sort(key=lambda b: -b.edge)
+        logger.info(f"[ValueBet] Total encontradas: {len(all_bets)}")
         return all_bets
 
     def _send_value_bets_alert(self, value_bets: list, prefix: str = ""):

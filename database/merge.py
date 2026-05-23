@@ -1,5 +1,6 @@
 """Merge de dados de diferentes fontes no banco."""
 import re
+import unicodedata
 from loguru import logger
 from database.schema import get_conn
 
@@ -7,6 +8,8 @@ from database.schema import get_conn
 def _normalize(name: str) -> str:
     """Normaliza nome de time para matching entre fontes."""
     name = name.lower().strip()
+    # Converter caracteres acentuados para ASCII (ex: é -> e)
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
     name = re.sub(r"[^a-z0-9 ']", "", name)
     # Abreviacoes comuns
     replacements = {
@@ -154,6 +157,7 @@ def _normalize(name: str) -> str:
         "fc union berlin": "union berlin",
         # La Liga
         "athletic club": "ath bilbao",
+        "athletic bilbao": "ath bilbao",
         "atletico madrid": "ath madrid",
         "celta vigo": "celta",
         "espanyol": "espanol",

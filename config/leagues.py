@@ -51,7 +51,7 @@ LEAGUES: list[League] = [
         country="Franca",
         api_football_id=61,
         football_data_code="F1",
-        sport_key="soccer_france_ligue_1",
+        sport_key="soccer_france_ligue_one",
         understat_name="FRA-Ligue 1",
     ),
     League(
@@ -67,7 +67,7 @@ LEAGUES: list[League] = [
         country="Inglaterra",
         api_football_id=40,
         football_data_code="E1",
-        sport_key="soccer_england_championship",
+        sport_key="soccer_efl_champ",
         understat_name=None,
     ),
     League(
@@ -91,7 +91,7 @@ LEAGUES: list[League] = [
         country="Alemanha",
         api_football_id=79,
         football_data_code="D2",
-        sport_key="soccer_germany_2_bundesliga",
+        sport_key="soccer_germany_bundesliga2",
         understat_name=None,
     ),
 ]
