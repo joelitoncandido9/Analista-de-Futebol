@@ -425,38 +425,47 @@ class BSDCollector(BaseCollector):
                     "away_team": ev.get("away_team", ""),
                     "league": league_name,
                     "match_date": ev.get("event_date", ""),
+                    "source": "bsd",
                 }
 
-                # 1X2
+                # 1X2 → normalizar para "result" (mesmo formato dos nossos modelos)
                 mr = m.get("match_result", {})
-                converted.append({**base, "market": "1x2", "line": 0,
+                converted.append({**base, "market": "result", "line": 0,
                                   "direction": "home", "probability": mr.get("prob_home", 0) / 100})
-                converted.append({**base, "market": "1x2", "line": 0,
+                converted.append({**base, "market": "result", "line": 0,
                                   "direction": "draw", "probability": mr.get("prob_draw", 0) / 100})
-                converted.append({**base, "market": "1x2", "line": 0,
+                converted.append({**base, "market": "result", "line": 0,
                                   "direction": "away", "probability": mr.get("prob_away", 0) / 100})
 
-                # Expected Goals
+                # Expected Goals (mantido como mercado proprio)
                 eg = m.get("expected_goals", {})
+                eg_home = eg.get("home", 0)
+                eg_away = eg.get("away", 0)
                 converted.append({**base, "market": "expected_goals", "line": 0,
-                                  "direction": "home", "probability": eg.get("home", 0)})
+                                  "direction": "home", "probability": eg_home})
                 converted.append({**base, "market": "expected_goals", "line": 0,
-                                  "direction": "away", "probability": eg.get("away", 0)})
+                                  "direction": "away", "probability": eg_away})
 
-                # Over/Under
+                # Over/Under → normalizar para "total_goals" (adicionando under = 1 - over)
                 ou = m.get("over_under", {})
                 for line, key in [(1.5, "prob_over_15"), (2.5, "prob_over_25"), (3.5, "prob_over_35")]:
-                    prob = ou.get(key)
-                    if prob is not None:
-                        converted.append({**base, "market": "over_under", "line": line,
-                                          "direction": "over", "probability": prob / 100})
+                    prob_over = ou.get(key)
+                    if prob_over is not None:
+                        prob_over = prob_over / 100
+                        converted.append({**base, "market": "total_goals", "line": line,
+                                          "direction": "over", "probability": round(prob_over, 4)})
+                        converted.append({**base, "market": "total_goals", "line": line,
+                                          "direction": "under", "probability": round(1 - prob_over, 4)})
 
-                # BTTS
+                # BTTS → normalizar para "btts" (sim = yes, nao = 1 - yes)
                 btts = m.get("btts", {})
                 prob_yes = btts.get("prob_yes")
                 if prob_yes is not None:
+                    prob_yes = prob_yes / 100
                     converted.append({**base, "market": "btts", "line": 0,
-                                      "direction": "yes", "probability": prob_yes / 100})
+                                      "direction": "sim", "probability": round(prob_yes, 4)})
+                    converted.append({**base, "market": "btts", "line": 0,
+                                      "direction": "nao", "probability": round(1 - prob_yes, 4)})
 
             if converted:
                 saved = save_predictions(converted)

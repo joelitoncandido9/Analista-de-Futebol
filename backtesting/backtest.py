@@ -400,8 +400,39 @@ class BacktestEngine:
         for c in cal:
             th = f"{c['suggested_threshold']:.0%}" if c["suggested_threshold"] else "---"
             lines.append(f"  {c['market']:25s}: threshold {th} ({c['n']} amostras, {c['note']})")
+        lines.append("")
+
+        # 6. Model vs BSD comparison
+        lines.append("*Comparativo Modelo vs BSD:*")
+        by_source = self.summary_by_source()
+        sources_seen = set()
+        for s in by_source:
+            if s["total"] == 0:
+                continue
+            src_label = "🤖 Modelo" if s["source"] == "model" else "📡 BSD"
+            bar = "▓" * int(s["acc"] * 20) + "░" * (20 - int(s["acc"] * 20))
+            lines.append(f"  {src_label} {s['market']:20s} {s['direction']:10s}: {s['hits']:3d}/{s['total']:<3d} {bar} {s['acc']:.0%}")
+            sources_seen.add(s["source"])
+        if "bsd" not in sources_seen:
+            lines.append("  📡 BSD: sem dados avaliados ainda (acumulando...)")
+        lines.append("")
 
         return "\n".join(lines)
+
+    def summary_by_source(self) -> list[dict]:
+        """Compara acuracia por fonte (model vs bsd)."""
+        self.cur.execute("""
+            SELECT source, market, direction,
+                   COUNT(*) as total,
+                   SUM(was_correct) as hits,
+                   ROUND(AVG(was_correct), 4) as acc
+            FROM predictions
+            WHERE was_correct IS NOT NULL
+              AND market NOT IN ('result', 'expected_goals')
+            GROUP BY source, market, direction
+            ORDER BY source, total DESC
+        """)
+        return [dict(r) for r in self.cur.fetchall()]
 
     def close(self):
         self.conn.close()

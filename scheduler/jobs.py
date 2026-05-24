@@ -87,6 +87,7 @@ class FootballScheduler:
                 "away_team": pred["away_team"],
                 "league": pred["league"],
                 "match_date": str(pred.get("match_date", ""))[:10],
+                "source": "model",
             }
 
             for market_key, market_name, predicted_key in [
@@ -221,13 +222,26 @@ class FootballScheduler:
             # Salva previsões no banco para comparação futura
             self._save_all_predictions(predictions)
 
+            # Coleta predições BSD para comparação (segunda opinião)
+            try:
+                bsd_preds = bsd.collect_predictions(save=True)
+                logger.info(f"[Job] {len(bsd_preds)} predicoes BSD coletadas")
+            except Exception as e:
+                logger.warning(f"[Job] Erro coletando predicoes BSD: {e}")
+
             # Envia alerta pre-match consolidado por liga
             self._send_pre_match_consolidated(predictions)
 
-            # Palpites combinando EV + confianca
+            # Palpites dos nossos modelos (EV + confianca)
             tips = self._extract_tips(predictions)
             if tips:
                 self._send_tips(tips)
+
+            # Palpites da BSD (segunda opiniao)
+            self._send_bsd_tips()
+
+            # Palpites de valor: corners, bookings, shots (Odds-API.io)
+            self._send_oddsapi_value_tips()
 
             # Value bets
             value_bets = self._find_value_bets(predictions, fixtures)
@@ -277,6 +291,13 @@ class FootballScheduler:
                 # Salva previsões no banco
                 self._save_all_predictions(predictions)
 
+                # Coleta predições BSD para comparação
+                try:
+                    bsd_preds = bsd.collect_predictions(save=True)
+                    logger.info(f"[Job] {len(bsd_preds)} predicoes BSD coletadas")
+                except Exception as e:
+                    logger.warning(f"[Job] Erro coletando predicoes BSD: {e}")
+
                 # Re-envia alertas consolidados
                 self._send_pre_match_consolidated(predictions, prefix="[Re-check] ")
 
@@ -284,6 +305,12 @@ class FootballScheduler:
                 tips = self._extract_tips(predictions)
                 if tips:
                     self._send_tips(tips, prefix="[Re-check] ")
+
+                # Palpites da BSD
+                self._send_bsd_tips(prefix="[Re-check] ")
+
+                # Palpites de valor Odds-API.io
+                self._send_oddsapi_value_tips(prefix="[Re-check] ")
 
                 value_bets = self._find_value_bets(predictions, upcoming)
                 if value_bets:
@@ -705,6 +732,209 @@ class FootballScheduler:
                 )
             except Exception as e:
                 logger.warning(f"[Tips] Erro ao enviar {match}: {e}")
+
+    def _send_bsd_tips(self, prefix: str = ""):
+        """Envia palpites da BSD (CatBoost) agrupados por jogo no WhatsApp."""
+        from datetime import date
+        from database.schema import get_conn
+        from scheduler.whatsapp import send_text
+        from collections import OrderedDict
+
+        today = date.today().strftime("%Y-%m-%d")
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT fixture_id, home_team, away_team, league, match_date,
+                   market, direction, line, probability
+            FROM predictions
+            WHERE source = 'bsd'
+              AND match_date = ?
+              AND market IN ('result', 'total_goals', 'btts')
+            ORDER BY fixture_id, market
+        """, (today,))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+
+        if not rows:
+            return
+
+        # Agrupar por fixture e selecionar melhor pick por mercado
+        market_label = {
+            "result": "Resultado",
+            "total_goals": "Gols",
+            "btts": "BTTS",
+        }
+        direction_label = {
+            "home": "Casa", "draw": "Empate", "away": "Fora",
+            "over": "Over", "under": "Under",
+            "sim": "Sim", "nao": "Não",
+        }
+
+        # Por fixture, selecionar a direcao com maior prob em cada mercado
+        by_fixture = OrderedDict()
+        for r in rows:
+            key = r["fixture_id"]
+            if key not in by_fixture:
+                by_fixture[key] = {
+                    "home_team": r["home_team"],
+                    "away_team": r["away_team"],
+                    "league": r["league"],
+                    "picks": {},
+                }
+            mkt = r["market"]
+            # Manter so o melhor (maior prob) por mercado
+            if mkt not in by_fixture[key]["picks"] or r["probability"] > by_fixture[key]["picks"][mkt]["probability"]:
+                by_fixture[key]["picks"][mkt] = r
+
+        for fx_id, data in by_fixture.items():
+            picks = data["picks"]
+            if not picks:
+                continue
+
+            header = f"{prefix}📡 *BSD — {data['home_team']} x {data['away_team']}* ({data['league']})"
+            lines = []
+            for mkt, pick in picks.items():
+                prob = pick["probability"]
+                if prob < 0.50:
+                    continue  # pular palpites muito incertos
+                label = market_label.get(mkt, mkt)
+                direcao = direction_label.get(pick["direction"], pick["direction"])
+                linha = f" {pick['line']}" if pick["line"] > 0 else ""
+                lines.append(f"  {label}: {direcao}{linha} ({prob:.0%})")
+
+            if lines:
+                try:
+                    msg = header + "\n" + "\n".join(lines)
+                    send_text(msg)
+                    logger.info(f"[BSDTips] Enviado: {data['home_team']} x {data['away_team']} ({len(lines)} palpites)")
+                except Exception as e:
+                    logger.warning(f"[BSDTips] Erro ao enviar {data['home_team']}x{data['away_team']}: {e}")
+
+    def _send_oddsapi_value_tips(self, prefix: str = ""):
+        """Envia palpites de valor (corners, bookings, shots) via Odds-API.io."""
+        try:
+            from collectors.oddsapi_io_collector import OddsApiIOCollector, get_league_stats
+            from analise.ev_calculator import calculate_ev_tips
+            from database.schema import get_conn
+            from scheduler.whatsapp import send_text
+            from collections import OrderedDict
+
+            collector = OddsApiIOCollector()
+
+            # Leagues que temos jogos hoje
+            conn = get_conn()
+            cur = conn.cursor()
+            today = date.today().strftime("%Y-%m-%d")
+            cur.execute("""
+                SELECT DISTINCT league FROM matches
+                WHERE match_date = ? AND status IN ('scheduled', 'notstarted', 'pending')
+            """, (today,))
+            leagues_today = [r["league"] for r in cur.fetchall()]
+            conn.close()
+
+            if not leagues_today:
+                return
+
+            # Mapear league name -> slug da Odds-API.io
+            slug_map = {
+                "Premier League": "england-premier-league",
+                "La Liga": "spain-la-liga",
+                "Bundesliga": "germany-bundesliga",
+                "Serie A": "italy-serie-a",
+                "Ligue 1": "france-ligue-1",
+                "Brasileirao": "brazil-brasileiro-serie-a",
+                "Serie B": "brazil-brasileiro-serie-b",
+                "Champions League": "international-clubs-uefa-champions-league",
+                "Europa League": "international-clubs-uefa-europa-league",
+                "Libertadores": "international-clubs-copa-libertadores",
+                "Primeira Liga": "portugal-primeira-liga",
+                "Eredivisie": "netherlands-eredivisie",
+                "Championship": "england-championship",
+            }
+            slugs = [slug_map.get(l) for l in leagues_today if slug_map.get(l)]
+            if not slugs:
+                return
+
+            # Coletar odds + stats
+            odds = collector.collect_value_odds(league_slugs=slugs)
+            if not odds:
+                return
+
+            conn = get_conn()
+            cur = conn.cursor()
+            stats = get_league_stats(cur)
+            conn.close()
+
+            tips = calculate_ev_tips(odds, stats)
+            if not tips:
+                logger.info("[OddsAPI] Nenhum palpite com EV positivo")
+                return
+
+            # Agrupar por jogo
+            market_emoji = {
+                "corners": "🥅", "home_corners": "🏠🥅", "away_corners": "✈️🥅",
+                "yellow_cards": "🟨", "total_shots": "💥", "total_shots_on_target": "🎯",
+            }
+            market_label = {
+                "corners": "Escanteios", "home_corners": "Esc. Casa",
+                "away_corners": "Esc. Fora", "yellow_cards": "Cartões",
+                "total_shots": "Finalizações", "total_shots_on_target": "Chutes no Gol",
+            }
+
+            grouped: dict[str, dict] = OrderedDict()
+            for t in tips:
+                key = f"{t.home_team} x {t.away_team}"
+                if key not in grouped:
+                    grouped[key] = {"league": t.league, "tips": []}
+                grouped[key]["tips"].append(t)
+
+            for match, data in grouped.items():
+                lines = [f"{prefix}🎯 *{match}* ({data['league']}) — Value Odds"]
+                for t in data["tips"]:
+                    emoji = market_emoji.get(t.market, "📊")
+                    lbl = market_label.get(t.market, t.market)
+                    lines.append(
+                        f"  {emoji} {lbl}: {t.direction} {t.line:.1f} "
+                        f"(odd {t.odd:.2f} | EV +{t.ev:.0%})"
+                    )
+
+                try:
+                    send_text("\n".join(lines))
+                    logger.info(
+                        f"[OddsAPI] Enviado: {match} "
+                        f"({len(data['tips'])} palpites)"
+                    )
+                except Exception as e:
+                    logger.warning(f"[OddsAPI] Erro ao enviar {match}: {e}")
+
+            # Salvar no banco como predictions para backtesting futuro
+            try:
+                from database.queries import save_predictions
+                pred_rows = []
+                for t in tips:
+                    pred_rows.append({
+                        "fixture_id": str(t.event_id),
+                        "home_team": t.home_team,
+                        "away_team": t.away_team,
+                        "league": t.league,
+                        "match_date": today,
+                        "source": "oddsapi",
+                        "market": t.market,
+                        "line": t.line,
+                        "direction": t.direction,
+                        "probability": t.est_prob,
+                    })
+                if pred_rows:
+                    saved = save_predictions(pred_rows)
+                    logger.info(f"[OddsAPI] {saved} palpites salvos no banco")
+            except Exception as e:
+                logger.warning(f"[OddsAPI] Erro salvando no banco: {e}")
+
+            logger.info(f"[OddsAPI] {len(tips)} palpites EV enviados")
+
+        except Exception as e:
+            logger.warning(f"[OddsAPI] Erro: {e}")
 
     def _find_value_bets(self, predictions: list[dict],
                           fixtures: list[dict]) -> list:

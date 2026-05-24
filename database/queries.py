@@ -168,8 +168,8 @@ def save_predictions(predictions: list[dict]):
                 """INSERT OR REPLACE INTO predictions
                    (fixture_id, home_team, away_team, league, match_date,
                     market, line, direction, probability,
-                    predicted_value, actual_value, was_correct)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    predicted_value, actual_value, was_correct, source)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     p.get("fixture_id"),
                     p.get("home_team"),
@@ -183,6 +183,7 @@ def save_predictions(predictions: list[dict]):
                     p.get("predicted_value"),
                     p.get("actual_value"),
                     p.get("was_correct"),
+                    p.get("source", "model"),
                 ),
             )
             saved += 1

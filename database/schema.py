@@ -153,12 +153,14 @@ CREATE TABLE IF NOT EXISTS predictions (
     predicted_value REAL,
     actual_value REAL,
     was_correct INTEGER,
+    source TEXT NOT NULL DEFAULT 'model',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_predictions_match ON predictions(fixture_id);
 CREATE INDEX IF NOT EXISTS idx_predictions_date ON predictions(match_date);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_predictions_unique ON predictions(fixture_id, market, direction, line);
+CREATE INDEX IF NOT EXISTS idx_predictions_source ON predictions(source);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_predictions_unique ON predictions(fixture_id, market, direction, line, source);
 """
 
 

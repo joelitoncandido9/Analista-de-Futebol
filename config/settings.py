@@ -35,6 +35,13 @@ THE_ODDS_API_KEYS = [k for k in [
 ] if k]
 THE_ODDS_API_URL = "https://api.the-odds-api.com/v4"
 
+# Odds-API.io (odds de escanteios, cartoes, finalizacoes)
+ODDSAPI_IO_KEYS = [k for k in [
+    os.getenv("ODDSAPI_IO_KEY"),
+    os.getenv("ODDS_KEY1"),
+] if k]
+ODDSAPI_IO_URL = "https://api.odds-api.io/v3"
+
 # OpenRouter (acesso a Claude e outros modelos)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
