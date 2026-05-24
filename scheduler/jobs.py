@@ -448,7 +448,7 @@ class FootballScheduler:
         return predictions
 
     def _extract_tips(self, predictions: list[dict],
-                       min_ev: float = 0.08,
+                       min_ev: float = 0.05,
                        min_conf: float = 0.75) -> list[dict]:
         """Extrai palpites combinando EV (mercados com odds) e confianca.
 
