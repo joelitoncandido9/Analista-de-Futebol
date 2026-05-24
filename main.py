@@ -94,6 +94,21 @@ def cmd_merge():
     print(f"  {count} registros atualizados")
 
 
+def cmd_backtest():
+    """Executa backtesting e mostra relatorio."""
+    from backtesting.backtest import run_backtest
+    report = run_backtest(verbose=True)
+    print(f"\n{report}")
+
+    # Enviar relatorio via WhatsApp
+    try:
+        from scheduler.whatsapp import send_text
+        send_text(report)
+        print("\nRelatorio enviado via WhatsApp")
+    except Exception as e:
+        print(f"\nRelatorio nao enviado: {e}")
+
+
 def cmd_status():
     """Mostra status do banco de dados."""
     from database.schema import get_conn
@@ -144,6 +159,9 @@ def main():
     # merge
     subparsers.add_parser("merge", help="Merge dados de diferentes fontes")
 
+    # backtest
+    subparsers.add_parser("backtest", help="Executa backtesting e mostra relatorio")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -157,6 +175,7 @@ def main():
         "collect": lambda: cmd_collect(args),
         "status": cmd_status,
         "merge": cmd_merge,
+        "backtest": cmd_backtest,
     }
 
     fn = cmds.get(args.command)
