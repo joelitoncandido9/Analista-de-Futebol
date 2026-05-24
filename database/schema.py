@@ -139,6 +139,18 @@ CREATE INDEX IF NOT EXISTS idx_team_stats_match ON team_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_player_stats_match ON player_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_odds_match ON odds(match_id);
 
+CREATE TABLE IF NOT EXISTS market_calibration (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT '',
+    threshold REAL NOT NULL,
+    accuracy REAL NOT NULL,
+    n_samples INTEGER NOT NULL,
+    calibrated_bucket TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(market, direction)
+);
+
 CREATE TABLE IF NOT EXISTS predictions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     fixture_id TEXT,

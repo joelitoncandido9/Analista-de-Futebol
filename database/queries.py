@@ -367,3 +367,57 @@ def get_match_odds(match_id: str, market: str | None = None) -> list[dict]:
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+def save_calibration(calibration_data: list[dict]):
+    """Salva thresholds calibrados por mercado na tabela market_calibration."""
+    conn = get_conn()
+    cur = conn.cursor()
+    saved = 0
+    for c in calibration_data:
+        try:
+            cur.execute(
+                """INSERT OR REPLACE INTO market_calibration
+                   (market, direction, threshold, accuracy, n_samples, calibrated_bucket)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    c.get("market", ""),
+                    c.get("direction", ""),
+                    c.get("suggested_threshold", 0.0) or 0.0,
+                    c.get("acc", 0.0) or 0.0,
+                    c.get("n", 0) or 0,
+                    c.get("calibrated_bucket", ""),
+                ),
+            )
+            saved += 1
+        except Exception as e:
+            logger.warning(f"Erro salvando calibracao para {c.get(market)}/{c.get(direction)}: {e}")
+    conn.commit()
+    conn.close()
+    return saved
+
+
+def load_calibration() -> dict:
+    """Carrega thresholds calibrados do banco.
+
+    Retorna dict: {(market, direction): {"threshold": ..., "accuracy": ...}}
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT market, direction, threshold, accuracy, n_samples, calibrated_bucket "
+        "FROM market_calibration ORDER BY market, direction"
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    result = {}
+    for r in rows:
+        key = (r["market"], r["direction"])
+        result[key] = {
+            "threshold": r["threshold"],
+            "accuracy": r["accuracy"],
+            "n_samples": r["n_samples"],
+            "calibrated_bucket": r["calibrated_bucket"],
+        }
+    return result

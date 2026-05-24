@@ -303,43 +303,81 @@ class BacktestEngine:
         return roi_results
 
     def calibrate_thresholds(self) -> list[dict]:
-        """Sugere thresholds de confianca minimos por mercado.
+        """Sugere thresholds de confianca minimos por mercado + direcao.
 
-        Para cada mercado, encontra o menor nivel de confianca onde
-        a acuracia real >= confianca (modelo calibrado).
+        Analisa por bucket de confianca (50-60%, 60-70%, etc.) e encontra
+        o menor nivel onde a acuracia real >= confianca declarada.
+        Se nenhum bucket for calibrado, usa fallback: acuracia_geral - 5%.
+
+        Retorna lista de dicts com threshold sugerido por (market, direction).
         """
         self.cur.execute("""
-            SELECT market, probability, was_correct
+            SELECT market, direction, probability, was_correct
             FROM predictions
             WHERE was_correct IS NOT NULL
               AND market NOT IN ('result', 'expected_goals')
-            ORDER BY market, probability DESC
+            ORDER BY market, direction, probability DESC
         """)
         raw = [dict(r) for r in self.cur.fetchall()]
 
-        by_market = defaultdict(list)
+        # Agrupar por (market, direction)
+        by_key = defaultdict(list)
         for r in raw:
-            by_market[r["market"]].append(r)
+            by_key[(r["market"], r["direction"])].append(r)
 
         suggestions = []
-        for market, preds in sorted(by_market.items()):
+        for (market, direction), preds in sorted(by_key.items()):
             if len(preds) < 5:
-                suggestions.append({"market": market, "n": len(preds), "suggested_threshold": None,
-                                    "note": "poucos dados (min 5)"})
+                suggestions.append({
+                    "market": market, "direction": direction,
+                    "n": len(preds), "suggested_threshold": None,
+                    "calibrated_bucket": "",
+                    "note": "poucos dados (min 5)"
+                })
                 continue
 
             total = len(preds)
             hits = sum(p["was_correct"] for p in preds)
             overall_acc = hits / total
 
-            # Sugerir threshold baseado na acuracia geral
-            suggested = max(0.5, overall_acc - 0.05)  # margem de 5%
+            # Analisar por bucket de confianca
+            bucket_stats = defaultdict(lambda: {"total": 0, "hits": 0})
+            for p in preds:
+                b = self._bucket(p["probability"])
+                bucket_stats[b]["total"] += 1
+                bucket_stats[b]["hits"] += p["was_correct"]
+
+            # Encontrar o menor bucket onde acuracia >= confianca media do bucket
+            calibrated_threshold = None
+            calibrated_bucket_label = ""
+            for b in sorted(bucket_stats.keys()):
+                d = bucket_stats[b]
+                if d["total"] < 3:
+                    continue  # poucas amostras no bucket, ignora
+                acc = d["hits"] / d["total"]
+                conf_mid = (b[0] + b[1]) / 2  # ponto medio do bucket
+                if acc >= conf_mid:
+                    calibrated_threshold = b[0]  # limite inferior do bucket
+                    calibrated_bucket_label = self.BUCKET_LABELS[b]
+                    break
+
+            # Se achou bucket calibrado, usa ele
+            if calibrated_threshold is not None:
+                suggested = calibrated_threshold
+                note = f"calibrado ({calibrated_bucket_label})"
+            else:
+                # Fallback: acuracia geral - margem
+                suggested = max(0.5, overall_acc - 0.05)
+                note = f"fallback (acc {overall_acc:.0%})"
+
             suggestions.append({
                 "market": market,
+                "direction": direction,
                 "n": total,
                 "acc": round(overall_acc, 3),
                 "suggested_threshold": round(suggested, 2),
-                "note": "calibrado" if overall_acc >= 0.7 else "pouca amostra",
+                "calibrated_bucket": calibrated_bucket_label,
+                "note": note,
             })
 
         return suggestions
@@ -398,8 +436,12 @@ class BacktestEngine:
         lines.append("*Calibracao Sugerida:*")
         cal = self.calibrate_thresholds()
         for c in cal:
-            th = f"{c['suggested_threshold']:.0%}" if c["suggested_threshold"] else "---"
-            lines.append(f"  {c['market']:25s}: threshold {th} ({c['n']} amostras, {c['note']})")
+            if c.get("suggested_threshold"):
+                bucket_info = f" [{c['calibrated_bucket']}]" if c.get("calibrated_bucket") else ""
+                th = f"{c['suggested_threshold']:.0%}"
+                lines.append(f"  {c['market']:25s} {c.get('direction',''):10s}: threshold {th:5s} ({c['n']:3d} amostras, {c['note']}){bucket_info}")
+            else:
+                lines.append(f"  {c['market']:25s} {c.get('direction',''):10s}: --- (apenas {c['n']} amostras)")
         lines.append("")
 
         # 6. Model vs BSD comparison

@@ -348,6 +348,19 @@ class FootballScheduler:
             # Enviar resultado dos palpites (1 por mercado) no WhatsApp
             self._send_tip_results()
 
+            # Rodar calibracao e salvar thresholds apos avaliar predicoes
+            try:
+                from backtesting.backtest import BacktestEngine
+                engine = BacktestEngine()
+                cal_data = engine.calibrate_thresholds()
+                from database.queries import save_calibration
+                saved = save_calibration(cal_data)
+                if saved:
+                    logger.info(f"[Job] {saved} thresholds calibrados salvos no banco")
+                engine.close()
+            except Exception as e:
+                logger.warning(f"[Job] Erro na calibracao pos-coleta: {e}")
+
             logger.info("[Job] Coleta de resultados concluida")
 
         except Exception as e:
@@ -474,9 +487,31 @@ class FootballScheduler:
 
         return predictions
 
+    def _load_thresholds(self) -> dict:
+        # Carrega thresholds calibrados do banco.
+        # Retorna dict: {(market, direction): {"threshold": ..., "accuracy": ...}}
+        try:
+            from database.queries import load_calibration
+            return load_calibration()
+        except Exception as e:
+            logger.warning(f"[Scheduler] Erro carregando thresholds: {e}")
+            return {}
+
+    def _get_min_conf(self, market: str, direction: str,
+                      thresholds: dict, default: float = 0.75) -> float:
+        # Retorna threshold calibrado para um mercado+direcao, ou default.
+        key = (market, direction)
+        cal = thresholds.get(key)
+        if cal and cal.get("threshold", 0) > 0:
+            return cal["threshold"]
+        # Tenta sem direcao (fallback generico do mercado)
+        for (m, d), cal in thresholds.items():
+            if m == market and not d and cal.get("threshold", 0) > 0:
+                return cal["threshold"]
+        return default
+
     def _extract_tips(self, predictions: list[dict],
-                       min_ev: float = 0.05,
-                       min_conf: float = 0.75) -> list[dict]:
+                       min_ev: float = 0.05) -> list[dict]:
         """Extrai palpites combinando EV (mercados com odds) e confianca.
 
         Para mercados com odds no banco (gols, BTTS, DC): calcula EV para
@@ -555,6 +590,9 @@ class FootballScheduler:
                 if best_tip:
                     tips.append(best_tip)
 
+        # Carregar thresholds calibrados (evita chamada repetida no loop)
+        thresholds = self._load_thresholds()
+
         # --- Confidence-based stat markets (sem odds disponiveis) ---
         stat_configs = [
             ("escanteios", "corners", "predicted_total_corners", None),
@@ -581,10 +619,13 @@ class FootballScheduler:
                 best_tip = None
 
                 for k, prob in probs.items():
-                    if prob < min_conf:
-                        continue
                     parts = k.split("_")
                     direction, line = parts[0], float(parts[1])
+
+                    # Usar threshold calibrado para este mercado+direcao
+                    min_conf = self._get_min_conf(key, direction, thresholds)
+                    if prob < min_conf:
+                        continue
 
                     predicted_num = predicted if isinstance(predicted, (int, float)) else 0
                     tightness = abs(line - predicted_num)
