@@ -10,7 +10,8 @@ class League:
     football_data_code: str       # codigo usado no football-data.co.uk
     sport_key: str                # chave para the-odds-api
     understat_name: str           # nome usado no soccerdata Understat
-    fbref_name: str | None = None # nome FBref (caso funcione no futuro)
+    fbref_name: str | None = None   # nome FBref (caso funcione no futuro)
+    bsd_id: int | None = None       # ID na BSD (Bzzoiro Sports Data)
 
 
 LEAGUES: list[League] = [
@@ -21,6 +22,7 @@ LEAGUES: list[League] = [
         football_data_code="E0",
         sport_key="soccer_epl",
         understat_name="ENG-Premier League",
+        bsd_id=1,
     ),
     League(
         name="La Liga",
@@ -29,6 +31,7 @@ LEAGUES: list[League] = [
         football_data_code="SP1",
         sport_key="soccer_spain_la_liga",
         understat_name="ESP-La Liga",
+        bsd_id=3,
     ),
     League(
         name="Bundesliga",
@@ -37,6 +40,7 @@ LEAGUES: list[League] = [
         football_data_code="D1",
         sport_key="soccer_germany_bundesliga",
         understat_name="GER-Bundesliga",
+        bsd_id=5,
     ),
     League(
         name="Serie A",
@@ -45,6 +49,7 @@ LEAGUES: list[League] = [
         football_data_code="I1",
         sport_key="soccer_italy_serie_a",
         understat_name="ITA-Serie A",
+        bsd_id=4,
     ),
     League(
         name="Ligue 1",
@@ -53,6 +58,7 @@ LEAGUES: list[League] = [
         football_data_code="F1",
         sport_key="soccer_france_ligue_one",
         understat_name="FRA-Ligue 1",
+        bsd_id=6,
     ),
     League(
         name="Brasileirao",
@@ -61,6 +67,7 @@ LEAGUES: list[League] = [
         football_data_code="B1",
         sport_key="soccer_brazil_campeonato",
         understat_name=None,
+        bsd_id=9,
     ),
     League(
         name="Championship",
@@ -69,6 +76,7 @@ LEAGUES: list[League] = [
         football_data_code="E1",
         sport_key="soccer_efl_champ",
         understat_name=None,
+        bsd_id=12,
     ),
     League(
         name="Primeira Liga",
@@ -77,6 +85,7 @@ LEAGUES: list[League] = [
         football_data_code="P1",
         sport_key="soccer_portugal_primeira_liga",
         understat_name=None,
+        bsd_id=2,
     ),
     League(
         name="Eredivisie",
@@ -85,6 +94,7 @@ LEAGUES: list[League] = [
         football_data_code="N1",
         sport_key="soccer_netherlands_eredivisie",
         understat_name=None,
+        bsd_id=10,
     ),
     League(
         name="2. Bundesliga",
@@ -93,11 +103,13 @@ LEAGUES: list[League] = [
         football_data_code="D2",
         sport_key="soccer_germany_bundesliga2",
         understat_name=None,
+        bsd_id=None,
     ),
 ]
 
 LEAGUES_BY_NAME = {l.name: l for l in LEAGUES}
 LEAGUES_BY_API_ID = {l.api_football_id: l for l in LEAGUES}
+LEAGUES_BY_BSD_ID = {l.bsd_id: l for l in LEAGUES if l.bsd_id}
 
 
 def get_league(name: str) -> League:

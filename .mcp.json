@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bzzoiro": {
+      "transport": "http",
+      "url": "https://sports.bzzoiro.com/mcp",
+      "headers": {
+        "Authorization": "Token c31fcf9788807f7313c5b06e6dcf2e2109e01d54"
+      }
+    }
+  }
+}

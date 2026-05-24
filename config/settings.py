@@ -18,6 +18,10 @@ API_FOOTBALL_KEYS = [k for k in API_FOOTBALL_KEYS if k]
 API_FOOTBALL_URL = "https://v3.football.api-sports.io"
 API_FOOTBALL_RATE = 10  # req/min por key
 
+# BSD (Bzzoiro Sports Data API v2)
+BSD_TOKEN = os.getenv("BSD_TOKEN")
+BSD_BASE_URL = os.getenv("BSD_BASE_URL", "https://sports.bzzoiro.com/api/v2")
+
 # The-Odds-API (6-7 keys rotacionadas)
 THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")  # keep for backward compat
 THE_ODDS_API_KEYS = [k for k in [

@@ -14,7 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
 from config.settings import LOGS_DIR
-from config.leagues import LEAGUES
+from config.leagues import LEAGUES, LEAGUES_BY_BSD_ID
 
 
 class FootballScheduler:
@@ -180,21 +180,40 @@ class FootballScheduler:
         logger.info(f"[Predictions] {saved} linhas salvas no banco")
         return saved
 
+    def _bsd_matches_to_fixtures(self, matches: list[dict]) -> list[dict]:
+        """Converte matches do BSD para formato esperado por _predict_fixtures."""
+        fixtures = []
+        for m in matches:
+            if m.get("status") in ("finished", "cancelled", "postponed"):
+                continue
+            fixtures.append({
+                "fixture_id": m.get("match_id", "").replace("bsd_", ""),
+                "home_team": m.get("home_team", ""),
+                "away_team": m.get("away_team", ""),
+                "league": m.get("league", ""),
+                "match_date": m.get("match_date", ""),
+            })
+        return fixtures
+
     def job_pre_match(self):
-        """Gera pre-match predictions para jogos do dia."""
+        """Gera pre-match predictions para jogos do dia via BSD."""
         logger.info("[Job] Iniciando pre-match predictions...")
-        today = date.today().strftime("%Y-%m-%d")
 
         try:
-            from collectors.api_football_collector import APIFootballCollector
+            from collectors.bsd_collector import BSDCollector
 
-            api = APIFootballCollector()
-            fixtures = api.collect_today()
-            if not fixtures:
+            bsd = BSDCollector()
+            matches = bsd.collect_today(save=True)
+            if not matches:
                 logger.info("[Job] Nenhum jogo hoje")
                 return
 
-            logger.info(f"[Job] {len(fixtures)} jogos hoje")
+            fixtures = self._bsd_matches_to_fixtures(matches)
+            logger.info(f"[Job] {len(fixtures)} jogos hoje (de {len(matches)} eventos)")
+
+            if not fixtures:
+                logger.info("[Job] So eventos encerrados hoje, sem pre-match")
+                return
 
             # Predicoes para cada jogo
             predictions = self._predict_fixtures(fixtures)
@@ -221,19 +240,36 @@ class FootballScheduler:
             logger.error(f"[Job] Erro pre-match: {e}")
 
     def job_recheck(self):
-        """Re-check predictions ao meio-dia com alertas individuais."""
+        """Re-check predictions ao meio-dia com alertas individuais via BSD."""
         logger.info("[Job] Re-check meio-dia...")
         try:
-            from collectors.api_football_collector import APIFootballCollector
+            from collectors.bsd_collector import BSDCollector
 
-            api = APIFootballCollector()
+            bsd = BSDCollector()
             today = date.today().strftime("%Y-%m-%d")
-            fixtures = api.get_fixtures(today)
-            if not fixtures:
+            league_ids = bsd._league_ids
+
+            # Buscar so eventos que ainda nao comecaram
+            events = bsd.get_events(
+                date_from=today, date_to=today,
+                league_ids=league_ids, status="notstarted",
+            )
+            if not events:
+                logger.info("[Job] Todos os jogos ja comecaram ou encerraram")
                 return
 
-            # Filtrar so jogos que ainda nao comecaram
-            upcoming = [f for f in fixtures if f.get("status") in ("NS", "TBD")]
+            # Converter para formato de fixtures
+            def _event_league_name(e: dict) -> str:
+                league_obj = LEAGUES_BY_BSD_ID.get(e.get("league_id"))
+                return league_obj.name if league_obj else ""
+
+            upcoming = [{
+                "fixture_id": str(e["id"]),
+                "home_team": e["home_team"],
+                "away_team": e["away_team"],
+                "league": _event_league_name(e),
+                "match_date": e.get("event_date", ""),
+            } for e in events]
 
             if upcoming:
                 predictions = self._predict_fixtures(upcoming)
@@ -259,16 +295,16 @@ class FootballScheduler:
             logger.error(f"[Job] Erro re-check: {e}")
 
     def job_collect_results(self):
-        """Coleta resultados do dia e executa merge."""
-        logger.info("[Job] Coletando resultados do dia...")
+        """Coleta resultados dos ultimos 2 dias via BSD e executa merge."""
+        logger.info("[Job] Coletando resultados via BSD...")
         try:
-            from collectors.api_football_collector import APIFootballCollector
-            from database.merge import merge_all
+            from collectors.bsd_collector import BSDCollector
 
-            api = APIFootballCollector()
-            api.collect_today()
+            bsd = BSDCollector()
+            bsd.collect_results(days_back=2, save=True)
 
             # Merge com Understat se disponivel
+            from database.merge import merge_all
             from config.settings import DB_PATH
             logger.info("[Job] Executando merge de dados...")
             merge_all()
