@@ -191,7 +191,7 @@ class FootballScheduler:
                 "home_team": m.get("home_team", ""),
                 "away_team": m.get("away_team", ""),
                 "league": m.get("league", ""),
-                "match_date": m.get("match_date", ""),
+                "match_date": (m.get("match_date", "") or "")[:10],
             })
         return fixtures
 
@@ -224,10 +224,10 @@ class FootballScheduler:
             # Envia alerta pre-match consolidado por liga
             self._send_pre_match_consolidated(predictions)
 
-            # Palpites de alta confianca (>75%)
-            tips = self._extract_high_confidence_tips(predictions)
+            # Palpites combinando EV + confianca
+            tips = self._extract_tips(predictions)
             if tips:
-                self._send_confidence_tips(tips)
+                self._send_tips(tips)
 
             # Value bets
             value_bets = self._find_value_bets(predictions, fixtures)
@@ -280,10 +280,10 @@ class FootballScheduler:
                 # Re-envia alertas consolidados
                 self._send_pre_match_consolidated(predictions, prefix="[Re-check] ")
 
-                # Palpites de alta confiança atualizados
-                tips = self._extract_high_confidence_tips(predictions)
+                # Palpites combinando EV + confianca
+                tips = self._extract_tips(predictions)
                 if tips:
-                    self._send_confidence_tips(tips, prefix="[Re-check] ")
+                    self._send_tips(tips, prefix="[Re-check] ")
 
                 value_bets = self._find_value_bets(predictions, upcoming)
                 if value_bets:
@@ -447,14 +447,89 @@ class FootballScheduler:
 
         return predictions
 
-    def _extract_high_confidence_tips(self, predictions: list[dict],
-                                       min_conf: float = 0.75) -> list[dict]:
-        """Extrai palpites de alta confiança (>75%) das previsões.
+    def _extract_tips(self, predictions: list[dict],
+                       min_ev: float = 0.08,
+                       min_conf: float = 0.75) -> list[dict]:
+        """Extrai palpites combinando EV (mercados com odds) e confianca.
 
-        Para cada mercado coberto, seleciona a linha mais justa (>75%),
-        priorizando linhas mais próximas do valor previsto.
+        Para mercados com odds no banco (gols, BTTS, DC): calcula EV para
+        cada linha usando probabilidade do modelo x odd de mercado, seleciona
+        a de maior EV acima de min_ev.
+        Para mercados sem odds (escanteios, finalizacoes, etc.): usa
+        confianca > min_conf com linha mais justa (proxima do previsto).
         """
-        market_configs = [
+        tips = []
+
+        # --- EV-based markets (precisa de odds no banco) ---
+        ev_configs = [
+            ("gols", "goals", "predicted_total_goals", "over_under", 10, None),
+            ("BTTS", "btts", "btts_prob", "btts", None, {"sim": "yes", "nao": "no"}),
+            ("Double Chance", "double_chance", None, "double_chance", None,
+             {"casa-empate": "1x", "fora-empate": "x2", "12": "12"}),
+        ]
+
+        for pred in predictions:
+            fixture_id = pred.get("fixture_id", "")
+            match_id = f"bsd_{fixture_id}"
+
+            from database.queries import get_match_odds
+            odds_rows = get_match_odds(match_id)
+
+            odds_by_market = {}
+            for o in odds_rows:
+                odds_by_market.setdefault(o["market"], {})[o["selection"]] = o["odd_value"]
+
+            for label, pred_key, predicted_key, odds_market, line_scale, dir_map in ev_configs:
+                market_odds = odds_by_market.get(odds_market, {})
+                if not market_odds:
+                    continue
+
+                data = pred.get(pred_key)
+                if not data or not data.get("probabilities"):
+                    continue
+
+                probs = data["probabilities"]
+
+                best_ev = -999
+                best_tip = None
+
+                for k, prob in probs.items():
+                    parts = k.split("_")
+                    direction = parts[0]
+                    line = float(parts[1]) if len(parts) > 1 else 0
+
+                    # Mapear para selection da tabela odds
+                    if dir_map:
+                        sel = dir_map.get(direction)
+                    elif line_scale:
+                        sel = f"{direction}_{int(line * line_scale)}"
+                    else:
+                        sel = direction
+
+                    if not sel or sel not in market_odds:
+                        continue
+
+                    odd = market_odds[sel]
+                    ev = prob * odd - 1
+
+                    if ev > best_ev and ev >= min_ev:
+                        best_ev = ev
+                        best_tip = {
+                            "match": f"{pred['home_team']} x {pred['away_team']}",
+                            "league": pred["league"],
+                            "market": label,
+                            "direction": direction,
+                            "line": line,
+                            "confidence": round(prob * 100, 1),
+                            "ev": round(ev * 100, 1),
+                            "odd": odd,
+                        }
+
+                if best_tip:
+                    tips.append(best_tip)
+
+        # --- Confidence-based stat markets (sem odds disponiveis) ---
+        stat_configs = [
             ("escanteios", "corners", "predicted_total_corners", None),
             ("finalizações", "shots", "predicted_total_shots", None),
             ("chutes no gol", "shots_on_target", "predicted_total_shots_on_target", None),
@@ -462,48 +537,35 @@ class FootballScheduler:
             ("cartões", "cards", "predicted_total_yellow", None),
             ("esc. casa", "team_corners", "predicted_home_corners", "home"),
             ("esc. fora", "team_corners", "predicted_away_corners", "away"),
-            ("gols", "goals", "predicted_total_goals", None),
-            ("BTTS", "btts", "btts_prob", None),
-            ("Double Chance", "double_chance", "predicted_double_chance", None),
         ]
 
-        tips = []
         for pred in predictions:
-            home = pred["home_team"]
-            away = pred["away_team"]
-            league = pred["league"]
-            match = f"{home} x {away}"
-
-            for label, key, predicted_key, side in market_configs:
+            for label, key, predicted_key, side in stat_configs:
                 data = pred.get(key)
                 if not data:
                     continue
 
-                probs_key = "probabilities"
-                if side:
-                    probs_key = f"{side}_probabilities"
-
+                probs_key = f"{side}_probabilities" if side else "probabilities"
                 probs = data.get(probs_key)
                 if not probs:
                     continue
 
                 predicted = data.get(predicted_key, 0)
-
                 best_tip = None
+
                 for k, prob in probs.items():
                     if prob < min_conf:
                         continue
                     parts = k.split("_")
                     direction, line = parts[0], float(parts[1])
 
-                    # tightness = how close the line is to the predicted value
-                    # for non-numeric predictions (e.g., double chance), use 0
                     predicted_num = predicted if isinstance(predicted, (int, float)) else 0
                     tightness = abs(line - predicted_num)
+
                     if best_tip is None or tightness < best_tip["tightness"]:
                         best_tip = {
-                            "match": match,
-                            "league": league,
+                            "match": f"{pred['home_team']} x {pred['away_team']}",
+                            "league": pred["league"],
                             "market": label,
                             "direction": direction,
                             "line": line,
@@ -516,7 +578,8 @@ class FootballScheduler:
                     del best_tip["tightness"]
                     tips.append(best_tip)
 
-        tips.sort(key=lambda t: -t["confidence"])
+        # Sort: EV desc primeiro, depois confidence desc
+        tips.sort(key=lambda t: (t.get("ev", 0) or 0, t["confidence"]), reverse=True)
         return tips
 
     def _send_pre_match_consolidated(self, predictions: list[dict], prefix: str = ""):
@@ -571,8 +634,8 @@ class FootballScheduler:
             except Exception as e:
                 logger.warning(f"[PreMatch] Erro ao enviar {league}: {e}")
 
-    def _send_confidence_tips(self, tips: list[dict], prefix: str = ""):
-        """Envia palpites de alta confiança agrupados por jogo."""
+    def _send_tips(self, tips: list[dict], prefix: str = ""):
+        """Envia palpites agrupados por jogo, mostrando EV quando disponivel."""
         if not tips:
             return
 
@@ -591,7 +654,6 @@ class FootballScheduler:
             "Double Chance": "🛡️",
         }
 
-        # Agrupar por jogo (mantendo ordenação por confiança)
         from collections import OrderedDict
 
         grouped: dict[str, dict] = OrderedDict()
@@ -622,10 +684,17 @@ class FootballScheduler:
                     direction_label = "Under" if tip["direction"] == "under" else "Over"
                     line_str = f" {tip['line']}"
 
-                lines.append(
-                    f"{emoji} {market}: {direction_label}{line_str} "
-                    f"({tip['confidence']:.0f}%)"
-                )
+                # Mostrar EV se disponivel, senao mostra confianca
+                if "ev" in tip:
+                    lines.append(
+                        f"{emoji} {market}: {direction_label}{line_str} "
+                        f"(conf {tip['confidence']:.0f}% | EV +{tip['ev']:.0f}% | odd {tip['odd']})"
+                    )
+                else:
+                    lines.append(
+                        f"{emoji} {market}: {direction_label}{line_str} "
+                        f"({tip['confidence']:.0f}%)"
+                    )
 
             msg = header + "\n" + "\n".join(lines)
             try:

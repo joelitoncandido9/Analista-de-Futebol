@@ -183,7 +183,7 @@ class BSDCollector(BaseCollector):
             "league": league.name,
             "season": self._resolve_season(event),
             "round": event.get("round_number"),
-            "match_date": event.get("event_date"),
+            "match_date": (event.get("event_date") or "")[:10],
             "home_team": event.get("home_team", ""),
             "away_team": event.get("away_team", ""),
             "home_goals": event.get("home_score"),
